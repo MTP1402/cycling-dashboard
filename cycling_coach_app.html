@@ -269,10 +269,23 @@ async function loadInterview() {
     if (data.profile) {
       currentProfile = data.profile;
       updateProfileSummary();
+
+      // If profile exists, show it with option to update
+      if (chatHistory.length === 0) {
+        const hasProfile = data.profile.age || data.profile.fitness_level || data.profile.health_notes;
+        if (hasProfile) {
+          const msg = "Welcome back, " + userName + "! Your coaching profile is saved. You can update anything below — just tell me what's changed. How are you doing? Any updates on your health, weight, or training goals?";
+          chatHistory.push({role:"assistant", content: msg});
+          appendMsg(msg, 'coach');
+          return;
+        }
+      } else {
+        return; // already loaded
+      }
     }
   } catch(e) {}
 
-  // Start interview if no chat history
+  // No profile yet — start fresh interview
   if (chatHistory.length === 0) {
     const greeting = "Hi " + userName + "! I'm your cycling coach. Before we dive into your rides, I'd love to learn a bit about you as a rider. Tell me — how long have you been cycling, and what got you into it?";
     chatHistory.push({role:"assistant", content: greeting});
