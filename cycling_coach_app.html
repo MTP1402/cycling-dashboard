@@ -2,11 +2,17 @@
 ═══════════════════════════════════════════════════════════════════
 CYCLING COACH — cycling_coach_app.html
 
-VERSION: 1.2.0  (2026-07-19)
-Check this against the small "v1.2.0" tag in the app header once
+VERSION: 1.3.1  (2026-07-19)
+Check this against the small "v1.3.1" tag in the app header once
 loaded — the two should always match, or something didn't deploy.
 
 CHANGELOG
+  1.3.1 (2026-07-19) — reframed the import panel's medical-document
+                        warning around privacy/security, not just a
+                        system limitation
+  1.3.0 (2026-07-19) — added document import to the Coaching tab
+                        (handoff docs, training notes — .txt/.md
+                        only, explicitly not for medical records)
   1.2.0 (2026-07-19) — real Coaching tab: opens by referencing your
                         actual most recent ride, then a live chat via
                         POST /coaching/chat; "Discuss this ride" link
@@ -140,7 +146,7 @@ iframe { width: 100%; height: 800px; border: none; }
       <button class="nav-btn" id="navProfileBtn" onclick="showPage('interview', this)">👤 Profile</button>
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
-      <span style="font-size:10px;color:#bbb;">v1.2.0</span>
+      <span style="font-size:10px;color:#bbb;">v1.3.1</span>
       <button class="logout" onclick="logout()">Sign out</button>
     </div>
   </div>
@@ -215,6 +221,21 @@ iframe { width: 100%; height: 800px; border: none; }
   <!-- COACHING PAGE -->
   <div class="page" id="coachingPage">
     <div style="padding:20px;">
+      <div class="upload-card">
+        <h2>📄 Import context for your coach</h2>
+        <p style="font-size:12px;color:#666;margin-bottom:10px;">
+          Handoff notes, training plans, or anything else you want your coach to know — .txt or .md files.
+          <strong>For your privacy and security, please don't upload medical records, lab results, or other health documents</strong> —
+          this app doesn't process those.
+        </p>
+        <div class="upload-row">
+          <div class="field"><label>File (.txt or .md)</label><input type="file" id="importFile" accept=".txt,.md"></div>
+          <button class="upload-btn" id="importBtn" onclick="importDoc()">Import</button>
+        </div>
+        <div class="status" id="importStatus"></div>
+        <div id="importsList" style="margin-top:10px;font-size:12px;color:#555;"></div>
+      </div>
+
       <div class="settings-card">
         <h2>💬 Coaching Chat</h2>
         <div class="sub">Talk through your recent rides — how they felt, recovery, what's next.</div>
@@ -434,7 +455,53 @@ async function sendChat() {
   document.getElementById('chatInput').focus();
 }
 
+async function importDoc() {
+  const fileInput = document.getElementById('importFile');
+  const status = document.getElementById('importStatus');
+  const btn = document.getElementById('importBtn');
+  const file = fileInput.files[0];
+  if (!file) { status.textContent = "Please select a .txt or .md file"; status.className = 'status err'; return; }
+  btn.disabled = true;
+  status.textContent = "Importing " + file.name + "...";
+  status.className = 'status';
+  try {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(API+"/coaching/import", {method:"POST", headers:{Authorization:"Bearer "+token}, body:form});
+    const data = await res.json();
+    if (!res.ok) { status.textContent = data.detail || "Import failed"; status.className = 'status err'; }
+    else {
+      status.textContent = "Imported " + data.filename + " (" + data.chars + " chars)" + (data.truncated ? " — truncated to fit" : "");
+      status.className = 'status ok';
+      fileInput.value = '';
+      loadImports();
+    }
+  } catch(e) { status.textContent = "Import failed: " + e.message; status.className = 'status err'; }
+  btn.disabled = false;
+}
+
+async function loadImports() {
+  const list = document.getElementById('importsList');
+  try {
+    const res = await fetch(API+"/coaching/imports", {headers:{Authorization:"Bearer "+token}});
+    const data = await res.json();
+    if (!data.imports || !data.imports.length) { list.innerHTML = ''; return; }
+    list.innerHTML = "<strong>Imported:</strong> " + data.imports.map(d =>
+      "<span style='display:inline-block;background:#f0f0f0;border-radius:4px;padding:3px 8px;margin:3px 4px 0 0;'>"
+      + d.filename + " <a href='#' onclick='deleteImport(" + d.id + "); return false;' style='color:#ef4444;text-decoration:none;'>✕</a></span>"
+    ).join('');
+  } catch(e) {}
+}
+
+async function deleteImport(id) {
+  try {
+    await fetch(API+"/coaching/imports/"+id, {method:"DELETE", headers:{Authorization:"Bearer "+token}});
+    loadImports();
+  } catch(e) {}
+}
+
 async function loadCoaching() {
+  loadImports();
   if (coachChatHistory.length > 0) return; // conversation already started this session
   let opener = "Hey " + userName + "! How's training going? Tell me about your last ride.";
   try {
