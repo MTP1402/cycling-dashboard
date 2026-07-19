@@ -468,13 +468,10 @@ async function checkStravaStatus() {
 }
 
 function connectStrava() {
-  const w = window.open(API+"/strava/connect", 'strava', 'width=600,height=700'); // token passed via auth header, 'strava', 'width=600,height=700');
-  // Check periodically if window closed (means OAuth completed)
+  const url = API + "/strava/connect?_auth=" + encodeURIComponent(token);
+  const w = window.open(url, 'stravaAuth', 'width=600,height=700,left=200,top=100');
   const check = setInterval(() => {
-    if (w.closed) {
-      clearInterval(check);
-      checkStravaStatus();
-    }
+    try { if (w && w.closed) { clearInterval(check); setTimeout(checkStravaStatus, 1500); } } catch(e) {}
   }, 1000);
 }
 
