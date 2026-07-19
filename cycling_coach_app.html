@@ -2,11 +2,15 @@
 ═══════════════════════════════════════════════════════════════════
 CYCLING COACH — cycling_coach_app.html
 
-VERSION: 1.1.0  (2026-07-19)
-Check this against the small "v1.1.0" tag in the app header once
+VERSION: 1.2.0  (2026-07-19)
+Check this against the small "v1.2.0" tag in the app header once
 loaded — the two should always match, or something didn't deploy.
 
 CHANGELOG
+  1.2.0 (2026-07-19) — real Coaching tab: opens by referencing your
+                        actual most recent ride, then a live chat via
+                        POST /coaching/chat; "Discuss this ride" link
+                        added to the post-upload coaching card
   1.1.0 (2026-07-19) — nav restructured to 4 tabs (Dashboard /
                         Activities / Coaching / Profile); "Upload"
                         renamed to "Activities"; added Coaching tab
@@ -130,13 +134,13 @@ iframe { width: 100%; height: 800px; border: none; }
   <div class="app-header">
     <h1>🚴 Cycling Coach</h1>
     <div class="nav-links">
-      <button class="nav-btn active" onclick="showPage('dashboard')">📊 Dashboard</button>
-      <button class="nav-btn" onclick="showPage('activities')">📁 Activities</button>
-      <button class="nav-btn" onclick="showPage('coaching')">💬 Coaching</button>
-      <button class="nav-btn" onclick="showPage('interview')">👤 Profile</button>
+      <button class="nav-btn active" id="navDashboardBtn" onclick="showPage('dashboard', this)">📊 Dashboard</button>
+      <button class="nav-btn" id="navActivitiesBtn" onclick="showPage('activities', this)">📁 Activities</button>
+      <button class="nav-btn" id="navCoachingBtn" onclick="showPage('coaching', this)">💬 Coaching</button>
+      <button class="nav-btn" id="navProfileBtn" onclick="showPage('interview', this)">👤 Profile</button>
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
-      <span style="font-size:10px;color:#bbb;">v1.1.0</span>
+      <span style="font-size:10px;color:#bbb;">v1.2.0</span>
       <button class="logout" onclick="logout()">Sign out</button>
     </div>
   </div>
@@ -192,6 +196,9 @@ iframe { width: 100%; height: 800px; border: none; }
       <div class="coaching-card" id="coachingCard">
         <h2>🏆 Coach's assessment</h2>
         <p id="coachingText"></p>
+        <p style="margin-top:10px;">
+          <a href="#" onclick="goToCoaching(); return false;" style="font-size:12px;color:#3b82f6;font-weight:500;">💬 Discuss this ride with your coach →</a>
+        </p>
       </div>
 
       <div class="upload-card">
@@ -210,12 +217,17 @@ iframe { width: 100%; height: 800px; border: none; }
     <div style="padding:20px;">
       <div class="settings-card">
         <h2>💬 Coaching Chat</h2>
-        <div class="sub">Your post-ride check-ins and ongoing coaching conversation will live here.</div>
-        <div style="text-align:center;padding:50px 20px;color:#94a3b8;font-size:13px;line-height:1.7;">
-          🚧 Coming soon.<br>
-          After you upload a ride, your coach will open with something like<br>
-          "I see you just did a 42-mile ride — how did it feel?" — and you'll be able to<br>
-          talk it through right here, with the conversation remembered next time.
+        <div class="sub">Talk through your recent rides — how they felt, recovery, what's next.</div>
+
+        <div class="chat-window" id="coachChatWindow"></div>
+
+        <div class="chat-input-row">
+          <input type="text" id="coachChatInput" placeholder="Type your response..." onkeydown="if(event.key==='Enter')sendCoachChat()">
+          <button id="coachChatSendBtn" onclick="sendCoachChat()">Send</button>
+        </div>
+
+        <div class="disclaimer">
+          ⚠️ <strong>Disclaimer:</strong> This coaching chat is for informational purposes only. We are not medical professionals or certified coaches. Always consult your healthcare provider before starting or changing any exercise program.
         </div>
       </div>
     </div>
@@ -254,6 +266,7 @@ let token = localStorage.getItem("cc_token") || "";
 let userName = localStorage.getItem("cc_name") || "";
 let chatHistory = [];
 let currentProfile = {};
+let coachChatHistory = [];
 
 function setTab(tab) {
   document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', (i===0)===(tab==='login')));
@@ -303,13 +316,19 @@ function logout() {
   document.getElementById('appPage').style.display='none';
 }
 
-function showPage(page) {
+function showPage(page, btnEl) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   document.getElementById(page+'Page').classList.add('active');
-  event.target.classList.add('active');
+  const btn = btnEl || (typeof event !== 'undefined' ? event.target : null);
+  if (btn && btn.classList) btn.classList.add('active');
   if (page==='interview') loadInterview();
   if (page==='dashboard') loadDashboard();
+  if (page==='coaching') loadCoaching();
+}
+
+function goToCoaching() {
+  showPage('coaching', document.getElementById('navCoachingBtn'));
 }
 
 async function showApp() {
@@ -357,8 +376,8 @@ async function loadInterview() {
   }
 }
 
-function appendMsg(text, who) {
-  const cw = document.getElementById('chatWindow');
+function appendMsg(text, who, targetId) {
+  const cw = document.getElementById(targetId || 'chatWindow');
   const div = document.createElement('div');
   div.className = 'msg ' + who;
   div.textContent = text;
@@ -413,6 +432,68 @@ async function sendChat() {
   }
   btn.disabled = false;
   document.getElementById('chatInput').focus();
+}
+
+async function loadCoaching() {
+  if (coachChatHistory.length > 0) return; // conversation already started this session
+  let opener = "Hey " + userName + "! How's training going? Tell me about your last ride.";
+  try {
+    const res = await fetch(API+"/rides", {headers:{Authorization:"Bearer "+token}});
+    const data = await res.json();
+    if (data.rides && data.rides.length > 0) {
+      const r = data.rides[0]; // /rides is ordered by ride_date DESC, so this is the most recent
+      const distPart = r.dist_mi ? (Math.round(r.dist_mi*10)/10) + "-mile" : "";
+      let datePart = "";
+      if (r.ride_date) {
+        const d = new Date(r.ride_date + 'T12:00:00');
+        datePart = d.toLocaleDateString('en-US', {weekday:'long', month:'short', day:'numeric'});
+      }
+      opener = "Hey " + userName + "! I see you did a " + distPart + " ride"
+        + (datePart ? " on " + datePart : "") + " — how did it feel?";
+    }
+  } catch(e) {}
+  coachChatHistory.push({role:"assistant", content: opener});
+  appendMsg(opener, 'coach', 'coachChatWindow');
+}
+
+async function sendCoachChat() {
+  const input = document.getElementById('coachChatInput');
+  const btn = document.getElementById('coachChatSendBtn');
+  const msg = input.value.trim();
+  if (!msg) return;
+  input.value = '';
+  btn.disabled = true;
+
+  appendMsg(msg, 'user', 'coachChatWindow');
+  coachChatHistory.push({role:"user", content: msg});
+
+  const typing = document.createElement('div');
+  typing.className = 'msg coach';
+  typing.textContent = '...';
+  typing.id = 'coachTypingIndicator';
+  document.getElementById('coachChatWindow').appendChild(typing);
+
+  try {
+    const body = new URLSearchParams();
+    body.append('message', msg);
+    body.append('history', JSON.stringify(coachChatHistory.slice(-10)));
+
+    const res = await fetch(API+"/coaching/chat", {
+      method:"POST",
+      headers:{Authorization:"Bearer "+token, "Content-Type":"application/x-www-form-urlencoded"},
+      body: body.toString()
+    });
+    const data = await res.json();
+
+    document.getElementById('coachTypingIndicator')?.remove();
+    appendMsg(data.reply, 'coach', 'coachChatWindow');
+    coachChatHistory.push({role:"assistant", content: data.reply});
+  } catch(e) {
+    document.getElementById('coachTypingIndicator')?.remove();
+    appendMsg("Sorry, I had trouble connecting. Please try again.", 'coach', 'coachChatWindow');
+  }
+  btn.disabled = false;
+  document.getElementById('coachChatInput').focus();
 }
 
 function updateProfileSummary() {
