@@ -1,3 +1,20 @@
+<!--
+═══════════════════════════════════════════════════════════════════
+CYCLING COACH — cycling_coach_app.html
+
+VERSION: 1.1.0  (2026-07-19)
+Check this against the small "v1.1.0" tag in the app header once
+loaded — the two should always match, or something didn't deploy.
+
+CHANGELOG
+  1.1.0 (2026-07-19) — nav restructured to 4 tabs (Dashboard /
+                        Activities / Coaching / Profile); "Upload"
+                        renamed to "Activities"; added Coaching tab
+                        placeholder (full post-ride chat is next)
+  1.0.0                initial live build — dashboard, FIT upload,
+                        Strava connect/sync, AI profile interview
+═══════════════════════════════════════════════════════════════════
+-->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -114,10 +131,14 @@ iframe { width: 100%; height: 800px; border: none; }
     <h1>🚴 Cycling Coach</h1>
     <div class="nav-links">
       <button class="nav-btn active" onclick="showPage('dashboard')">📊 Dashboard</button>
-      <button class="nav-btn" onclick="showPage('upload')">📁 Upload</button>
-      <button class="nav-btn" onclick="showPage('interview')">👤 My Profile</button>
+      <button class="nav-btn" onclick="showPage('activities')">📁 Activities</button>
+      <button class="nav-btn" onclick="showPage('coaching')">💬 Coaching</button>
+      <button class="nav-btn" onclick="showPage('interview')">👤 Profile</button>
     </div>
-    <button class="logout" onclick="logout()">Sign out</button>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span style="font-size:10px;color:#bbb;">v1.1.0</span>
+      <button class="logout" onclick="logout()">Sign out</button>
+    </div>
   </div>
 
   <!-- DASHBOARD PAGE -->
@@ -129,8 +150,8 @@ iframe { width: 100%; height: 800px; border: none; }
     </div>
   </div>
 
-  <!-- UPLOAD PAGE -->
-  <div class="page" id="uploadPage">
+  <!-- ACTIVITIES PAGE -->
+  <div class="page" id="activitiesPage">
     <div style="padding:20px;">
       <div class="upload-card">
         <h2>🔄 Sync from Strava</h2>
@@ -180,6 +201,22 @@ iframe { width: 100%; height: 800px; border: none; }
           <button onclick="addNote()">Save note</button>
         </div>
         <div class="status" id="noteStatus"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- COACHING PAGE -->
+  <div class="page" id="coachingPage">
+    <div style="padding:20px;">
+      <div class="settings-card">
+        <h2>💬 Coaching Chat</h2>
+        <div class="sub">Your post-ride check-ins and ongoing coaching conversation will live here.</div>
+        <div style="text-align:center;padding:50px 20px;color:#94a3b8;font-size:13px;line-height:1.7;">
+          🚧 Coming soon.<br>
+          After you upload a ride, your coach will open with something like<br>
+          "I see you just did a 42-mile ride — how did it feel?" — and you'll be able to<br>
+          talk it through right here, with the conversation remembered next time.
+        </div>
       </div>
     </div>
   </div>
