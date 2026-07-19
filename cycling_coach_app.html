@@ -2,11 +2,14 @@
 ═══════════════════════════════════════════════════════════════════
 CYCLING COACH — cycling_coach_app.html
 
-VERSION: 1.3.1  (2026-07-19)
-Check this against the small "v1.3.1" tag in the app header once
+VERSION: 1.4.0  (2026-07-19)
+Check this against the small "v1.4.0" tag in the app header once
 loaded — the two should always match, or something didn't deploy.
 
 CHANGELOG
+  1.4.0 (2026-07-19) — voice input (mic button, browser Web Speech
+                        API) on both chat inputs; renamed "Add a
+                        personal note" to something less clinical
   1.3.1 (2026-07-19) — reframed the import panel's medical-document
                         warning around privacy/security, not just a
                         system limitation
@@ -99,6 +102,8 @@ iframe { width: 100%; height: 800px; border: none; }
 .chat-input-row input { flex: 1; padding: 9px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 13px; }
 .chat-input-row button { padding: 9px 18px; background: #3b82f6; color: #fff; border: none; border-radius: 8px; font-size: 13px; cursor: pointer; }
 .chat-input-row button:disabled { background: #ccc; cursor: default; }
+.mic-btn { padding: 9px 14px; background: #f5f5f5; color: #333; border: 1px solid #ddd; border-radius: 8px; font-size: 15px; cursor: pointer; }
+.mic-btn.recording { background: #fee2e2; border-color: #ef4444; }
 .profile-summary { background: #f0f7ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 14px; font-size: 12px; color: #1e40af; display: none; margin-top: 10px; }
 .profile-summary h3 { font-size: 12px; font-weight: 600; margin-bottom: 8px; }
 .profile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px; }
@@ -146,7 +151,7 @@ iframe { width: 100%; height: 800px; border: none; }
       <button class="nav-btn" id="navProfileBtn" onclick="showPage('interview', this)">👤 Profile</button>
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
-      <span style="font-size:10px;color:#bbb;">v1.3.1</span>
+      <span style="font-size:10px;color:#bbb;">v1.4.0</span>
       <button class="logout" onclick="logout()">Sign out</button>
     </div>
   </div>
@@ -208,10 +213,10 @@ iframe { width: 100%; height: 800px; border: none; }
       </div>
 
       <div class="upload-card">
-        <h2>📝 Add a personal note</h2>
+        <h2>💬 Anything your coach should know?</h2>
         <div class="notes-row">
           <input type="text" id="noteText" placeholder="e.g. Recovering from COVID, targeting 6500 miles this year">
-          <button onclick="addNote()">Save note</button>
+          <button onclick="addNote()">Save</button>
         </div>
         <div class="status" id="noteStatus"></div>
       </div>
@@ -244,6 +249,7 @@ iframe { width: 100%; height: 800px; border: none; }
 
         <div class="chat-input-row">
           <input type="text" id="coachChatInput" placeholder="Type your response..." onkeydown="if(event.key==='Enter')sendCoachChat()">
+          <button type="button" class="mic-btn" id="coachMicBtn" onclick="startVoiceInput('coachChatInput','coachMicBtn')" title="Voice input">🎤</button>
           <button id="coachChatSendBtn" onclick="sendCoachChat()">Send</button>
         </div>
 
@@ -265,6 +271,7 @@ iframe { width: 100%; height: 800px; border: none; }
 
         <div class="chat-input-row">
           <input type="text" id="chatInput" placeholder="Type your response..." onkeydown="if(event.key==='Enter')sendChat()">
+          <button type="button" class="mic-btn" id="profileMicBtn" onclick="startVoiceInput('chatInput','profileMicBtn')" title="Voice input">🎤</button>
           <button id="chatSendBtn" onclick="sendChat()">Send</button>
         </div>
 
@@ -288,6 +295,41 @@ let userName = localStorage.getItem("cc_name") || "";
 let chatHistory = [];
 let currentProfile = {};
 let coachChatHistory = [];
+
+function startVoiceInput(inputId, micBtnId) {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const input = document.getElementById(inputId);
+  const micBtn = document.getElementById(micBtnId);
+  if (!SpeechRecognition) {
+    alert("Voice input isn't supported in this browser. It works in Chrome (desktop and Android) — Firefox and some mobile browsers don't support it yet.");
+    return;
+  }
+  const recognition = new SpeechRecognition();
+  recognition.lang = 'en-US';
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+
+  micBtn.textContent = '⏺';
+  micBtn.classList.add('recording');
+  micBtn.disabled = true;
+
+  recognition.onresult = (event) => {
+    const transcript = event.results[0][0].transcript;
+    input.value = (input.value ? input.value.trim() + ' ' : '') + transcript;
+    input.focus();
+  };
+  recognition.onerror = (event) => {
+    if (event.error !== 'no-speech' && event.error !== 'aborted') {
+      alert("Voice input error: " + event.error);
+    }
+  };
+  recognition.onend = () => {
+    micBtn.textContent = '🎤';
+    micBtn.classList.remove('recording');
+    micBtn.disabled = false;
+  };
+  recognition.start();
+}
 
 function setTab(tab) {
   document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', (i===0)===(tab==='login')));
