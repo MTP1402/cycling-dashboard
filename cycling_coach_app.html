@@ -2,11 +2,16 @@
 ═══════════════════════════════════════════════════════════════════
 CYCLING COACH — cycling_coach_app.html
 
-VERSION: 1.4.0  (2026-07-19)
-Check this against the small "v1.4.0" tag in the app header once
+VERSION: 1.5.0  (2026-07-19)
+Check this against the small "v1.5.0" tag in the app header once
 loaded — the two should always match, or something didn't deploy.
 
 CHANGELOG
+  1.5.0 (2026-07-19) — recording indicator now uses a real CSS dot
+                        instead of an emoji glyph (color wasn't
+                        reliable across platforms/fonts); added mic
+                        button to the Activities note field; renamed
+                        that field to "Post-Ride Debrief"
   1.4.0 (2026-07-19) — voice input (mic button, browser Web Speech
                         API) on both chat inputs; renamed "Add a
                         personal note" to something less clinical
@@ -104,6 +109,7 @@ iframe { width: 100%; height: 800px; border: none; }
 .chat-input-row button:disabled { background: #ccc; cursor: default; }
 .mic-btn { padding: 9px 14px; background: #f5f5f5; color: #333; border: 1px solid #ddd; border-radius: 8px; font-size: 15px; cursor: pointer; }
 .mic-btn.recording { background: #fee2e2; border-color: #ef4444; }
+.rec-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #ef4444; }
 .profile-summary { background: #f0f7ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 14px; font-size: 12px; color: #1e40af; display: none; margin-top: 10px; }
 .profile-summary h3 { font-size: 12px; font-weight: 600; margin-bottom: 8px; }
 .profile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px; }
@@ -151,7 +157,7 @@ iframe { width: 100%; height: 800px; border: none; }
       <button class="nav-btn" id="navProfileBtn" onclick="showPage('interview', this)">👤 Profile</button>
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
-      <span style="font-size:10px;color:#bbb;">v1.4.0</span>
+      <span style="font-size:10px;color:#bbb;">v1.5.0</span>
       <button class="logout" onclick="logout()">Sign out</button>
     </div>
   </div>
@@ -213,9 +219,10 @@ iframe { width: 100%; height: 800px; border: none; }
       </div>
 
       <div class="upload-card">
-        <h2>💬 Anything your coach should know?</h2>
+        <h2>📝 Post-Ride Debrief</h2>
         <div class="notes-row">
-          <input type="text" id="noteText" placeholder="e.g. Recovering from COVID, targeting 6500 miles this year">
+          <input type="text" id="noteText" placeholder="How did that ride feel? Anything to flag for your coach...">
+          <button type="button" class="mic-btn" id="noteMicBtn" onclick="startVoiceInput('noteText','noteMicBtn')" title="Voice input">🎤</button>
           <button onclick="addNote()">Save</button>
         </div>
         <div class="status" id="noteStatus"></div>
@@ -309,7 +316,7 @@ function startVoiceInput(inputId, micBtnId) {
   recognition.interimResults = false;
   recognition.maxAlternatives = 1;
 
-  micBtn.textContent = '⏺';
+  micBtn.innerHTML = '<span class="rec-dot"></span>';
   micBtn.classList.add('recording');
   micBtn.disabled = true;
 
@@ -324,7 +331,7 @@ function startVoiceInput(inputId, micBtnId) {
     }
   };
   recognition.onend = () => {
-    micBtn.textContent = '🎤';
+    micBtn.innerHTML = '🎤';
     micBtn.classList.remove('recording');
     micBtn.disabled = false;
   };
