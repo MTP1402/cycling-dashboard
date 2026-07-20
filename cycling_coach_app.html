@@ -2,11 +2,16 @@
 ═══════════════════════════════════════════════════════════════════
 CYCLING COACH — cycling_coach_app.html
 
-VERSION: 1.5.1  (2026-07-19)
-Check this against the small "v1.5.1" tag in the app header once
+VERSION: 1.5.2  (2026-07-19)
+Check this against the small "v1.5.2" tag in the app header once
 loaded — the two should always match, or something didn't deploy.
 
 CHANGELOG
+  1.5.2 (2026-07-19) — removed the "Ride notes" field from the FIT
+                        upload form. It wrote to the ride record but
+                        nothing ever read it back — dead field,
+                        confusingly similar to Post-Ride Debrief
+                        which does actually feed the coaching chat.
   1.5.1 (2026-07-19) — added a favicon (the 🚴 emoji, matching the
                         existing header icon) so the browser tab
                         shows that instead of the default globe
@@ -161,7 +166,7 @@ iframe { width: 100%; height: 800px; border: none; }
       <button class="nav-btn" id="navProfileBtn" onclick="showPage('interview', this)">👤 Profile</button>
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
-      <span style="font-size:10px;color:#bbb;">v1.5.1</span>
+      <span style="font-size:10px;color:#bbb;">v1.5.2</span>
       <button class="logout" onclick="logout()">Sign out</button>
     </div>
   </div>
@@ -208,7 +213,6 @@ iframe { width: 100%; height: 800px; border: none; }
         <h2>📁 Upload FIT file(s)</h2>
         <div class="upload-row">
           <div class="field"><label>FIT file(s) — select one or many</label><input type="file" id="fitFile" accept=".fit" multiple></div>
-          <div class="field"><label>Ride notes (optional)</label><input type="text" id="rideNotes" placeholder="How did it feel?"></div>
           <button class="upload-btn" id="uploadBtn" onclick="uploadFit()">Upload & Analyze</button>
         </div>
         <div class="status" id="uploadStatus"></div>
@@ -642,7 +646,6 @@ function updateProfileSummary() {
 
 async function uploadFit() {
   const fileInput = document.getElementById('fitFile');
-  const notes = document.getElementById('rideNotes').value;
   const status = document.getElementById('uploadStatus');
   const btn = document.getElementById('uploadBtn');
   const files = Array.from(fileInput.files);
@@ -655,7 +658,7 @@ async function uploadFit() {
     status.className = 'status';
     try {
       const form = new FormData();
-      form.append("file", file); form.append("notes", notes);
+      form.append("file", file);
       const res = await fetch(API+"/upload", {method:"POST", headers:{Authorization:"Bearer "+token}, body:form});
       const data = await res.json();
       if (!res.ok) { errors.push(file.name+": "+data.detail); continue; }
