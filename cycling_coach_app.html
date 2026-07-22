@@ -2,11 +2,17 @@
 ═══════════════════════════════════════════════════════════════════
 CYCLING COACH — cycling_coach_app.html
 
-VERSION: 1.5.2  (2026-07-19)
-Check this against the small "v1.5.2" tag in the app header once
+VERSION: 1.5.3  (2026-07-19)
+Check this against the small "v1.5.3" tag in the app header once
 loaded — the two should always match, or something didn't deploy.
 
 CHANGELOG
+  1.5.3 (2026-07-19) — fixed voice input cutting off after a short
+                        pause. recognition.continuous was never set,
+                        so it defaulted to false — any pause read as
+                        "done talking." Now stays listening through
+                        pauses; tap the mic again to stop manually,
+                        with a 90s safety-net auto-stop as a backstop.
   1.5.2 (2026-07-19) — removed the "Ride notes" field from the FIT
                         upload form. It wrote to the ride record but
                         nothing ever read it back — dead field,
@@ -166,7 +172,7 @@ iframe { width: 100%; height: 800px; border: none; }
       <button class="nav-btn" id="navProfileBtn" onclick="showPage('interview', this)">👤 Profile</button>
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
-      <span style="font-size:10px;color:#bbb;">v1.5.2</span>
+      <span style="font-size:10px;color:#bbb;">v1.5.3</span>
       <button class="logout" onclick="logout()">Sign out</button>
     </div>
   </div>
@@ -311,6 +317,8 @@ let chatHistory = [];
 let currentProfile = {};
 let coachChatHistory = [];
 
+let activeRecognition = null;
+
 function startVoiceInput(inputId, micBtnId) {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   const input = document.getElementById(inputId);
@@ -319,19 +327,37 @@ function startVoiceInput(inputId, micBtnId) {
     alert("Voice input isn't supported in this browser. It works in Chrome (desktop and Android) — Firefox and some mobile browsers don't support it yet.");
     return;
   }
+
+  // Tap again while recording = stop manually
+  if (micBtn.classList.contains('recording')) {
+    if (activeRecognition) activeRecognition.stop();
+    return;
+  }
+  // Starting a new mic stops any other one that's still listening
+  if (activeRecognition) activeRecognition.stop();
+
   const recognition = new SpeechRecognition();
   recognition.lang = 'en-US';
+  recognition.continuous = true;
   recognition.interimResults = false;
   recognition.maxAlternatives = 1;
+  activeRecognition = recognition;
 
   micBtn.innerHTML = '<span class="rec-dot"></span>';
   micBtn.classList.add('recording');
-  micBtn.disabled = true;
+  micBtn.title = 'Tap to stop';
+
+  // Safety net — stop automatically after 90s so a forgotten mic doesn't run forever
+  const safetyTimeout = setTimeout(() => { recognition.stop(); }, 90000);
 
   recognition.onresult = (event) => {
-    const transcript = event.results[0][0].transcript;
-    input.value = (input.value ? input.value.trim() + ' ' : '') + transcript;
-    input.focus();
+    let finalText = '';
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      if (event.results[i].isFinal) finalText += event.results[i][0].transcript;
+    }
+    if (finalText.trim()) {
+      input.value = (input.value ? input.value.trim() + ' ' : '') + finalText.trim();
+    }
   };
   recognition.onerror = (event) => {
     if (event.error !== 'no-speech' && event.error !== 'aborted') {
@@ -339,9 +365,11 @@ function startVoiceInput(inputId, micBtnId) {
     }
   };
   recognition.onend = () => {
+    clearTimeout(safetyTimeout);
     micBtn.innerHTML = '🎤';
     micBtn.classList.remove('recording');
-    micBtn.disabled = false;
+    micBtn.title = 'Voice input';
+    if (activeRecognition === recognition) activeRecognition = null;
   };
   recognition.start();
 }
