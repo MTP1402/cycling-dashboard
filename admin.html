@@ -1,0 +1,186 @@
+<!--
+═══════════════════════════════════════════════════════════════════
+CYCLING COACH — admin.html
+
+VERSION: 1.0.0  (2026-07-19)
+Standalone monitor page — NOT linked from the main app, so beta
+testers never see it. Reads GET /admin/users, which is already
+restricted server-side to ADMIN_EMAILS in main.py.
+
+Deploy alongside cycling_coach_app.html in the same GitHub Pages
+repo (github.com/MTP1402/cycling-dashboard). Access directly via:
+https://mtp1402.github.io/cycling-dashboard/admin.html
+═══════════════════════════════════════════════════════════════════
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cycling Coach — Admin Monitor</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: Inter, sans-serif; background: #f0f0f0; min-height: 100vh; padding: 24px 16px; }
+.card { background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 24px; max-width: 960px; margin: 0 auto 16px; }
+h1 { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+.sub { font-size: 12px; color: #888; margin-bottom: 18px; }
+.field { margin-bottom: 12px; }
+.field label { font-size: 12px; font-weight: 500; color: #555; display: block; margin-bottom: 4px; }
+.field input { width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; }
+.btn { padding: 9px 18px; background: #3b82f6; color: #fff; border: none; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; }
+.btn:hover { background: #2563eb; }
+.error { color: #ef4444; font-size: 12px; margin-top: 8px; }
+.refresh-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 8px; }
+.small-btn { padding: 6px 14px; font-size: 12px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; color: #333; }
+.small-btn:hover { background: #e8e8e8; }
+.stats-row { display: flex; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
+.stat { background: #f8fafc; border-radius: 8px; padding: 10px 18px; border-left: 3px solid #2E75B6; }
+.stat .num { font-size: 22px; font-weight: 700; color: #1F4E79; }
+.stat .lbl { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: .05em; margin-top: 2px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; padding: 8px; border-bottom: 2px solid #e0e0e0; color: #555; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
+td { padding: 8px; border-bottom: 1px solid #f0f0f0; color: #333; }
+tr:hover td { background: #fafbfc; }
+.yes { color: #22c55e; font-weight: 700; }
+.no { color: #ccc; }
+.empty-msg { color: #888; font-size: 13px; padding: 16px 0; text-align: center; }
+@media (max-width: 700px) {
+  table, thead, tbody, th, td, tr { display: block; }
+  thead { display: none; }
+  tr { border-bottom: 2px solid #eee; padding: 10px 0; }
+  td { border: none; padding: 3px 0; }
+  td:before { content: attr(data-label) ": "; font-weight: 600; color: #888; font-size: 11px; }
+}
+</style>
+</head>
+<body>
+
+<div class="card" id="loginCard">
+  <h1>🔐 Admin Monitor</h1>
+  <div class="sub">Sign in with your Cycling Coach admin account</div>
+  <div class="field"><label>Email</label><input type="email" id="email" onkeydown="if(event.key==='Enter')login()"></div>
+  <div class="field"><label>Password</label><input type="password" id="password" onkeydown="if(event.key==='Enter')login()"></div>
+  <button class="btn" onclick="login()">Sign in</button>
+  <div class="error" id="loginErr"></div>
+</div>
+
+<div class="card" id="dashCard" style="display:none;">
+  <div class="refresh-row">
+    <div>
+      <h1>👥 Beta Roster</h1>
+      <div class="sub" style="margin-bottom:0;">Who's signed up and how active they've been</div>
+    </div>
+    <button class="small-btn" onclick="loadUsers()">↻ Refresh</button>
+  </div>
+  <div class="stats-row" id="statsRow"></div>
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Email</th><th>Joined</th><th>Rides</th><th>Last Ride</th><th>Strava</th><th>Profile</th></tr>
+    </thead>
+    <tbody id="usersBody"></tbody>
+  </table>
+  <div class="error" id="dashErr"></div>
+</div>
+
+<script>
+const API = "https://cycling-app-production.up.railway.app";
+let token = localStorage.getItem("cc_token") || "";
+
+async function login() {
+  const email = document.getElementById('email').value;
+  const password = document.getElementById('password').value;
+  const err = document.getElementById('loginErr');
+  err.textContent = '';
+  try {
+    const res = await fetch(API+"/login", {method:"POST",
+      headers:{"Content-Type":"application/x-www-form-urlencoded"},
+      body:"email="+encodeURIComponent(email)+"&password="+encodeURIComponent(password)});
+    const data = await res.json();
+    if (!res.ok) { err.textContent = data.detail || "Sign in failed"; return; }
+    token = data.token;
+    localStorage.setItem("cc_token", token);
+    tryLoad();
+  } catch(e) { err.textContent = "Connection error: " + e.message; }
+}
+
+async function tryLoad() {
+  const loginErr = document.getElementById('loginErr');
+  try {
+    const res = await fetch(API+"/admin/users", {headers:{Authorization:"Bearer "+token}});
+    if (res.status === 403) {
+      document.getElementById('loginCard').style.display = 'block';
+      document.getElementById('dashCard').style.display = 'none';
+      loginErr.textContent = "That account isn't an admin account.";
+      return;
+    }
+    if (res.status === 401) {
+      document.getElementById('loginCard').style.display = 'block';
+      document.getElementById('dashCard').style.display = 'none';
+      loginErr.textContent = "Session expired — please sign in again.";
+      return;
+    }
+    if (!res.ok) throw new Error("Request failed (" + res.status + ")");
+    const data = await res.json();
+    document.getElementById('loginCard').style.display = 'none';
+    document.getElementById('dashCard').style.display = 'block';
+    renderUsers(data.users || []);
+  } catch(e) {
+    document.getElementById('loginCard').style.display = 'block';
+    document.getElementById('dashCard').style.display = 'none';
+    loginErr.textContent = "Couldn't load: " + e.message;
+  }
+}
+
+function loadUsers() { tryLoad(); }
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+function stat(num, label) {
+  return "<div class='stat'><div class='num'>" + num + "</div><div class='lbl'>" + label + "</div></div>";
+}
+
+function renderUsers(users) {
+  const totalSignups = users.length;
+  const withRides = users.filter(u => u.ride_count > 0).length;
+  const withStrava = users.filter(u => u.strava_connected).length;
+  const withProfile = users.filter(u => u.profile_complete).length;
+
+  document.getElementById('statsRow').innerHTML =
+    stat(totalSignups, 'Signed up') +
+    stat(withRides, 'Have rides') +
+    stat(withStrava, 'Strava connected') +
+    stat(withProfile, 'Profile complete');
+
+  if (!users.length) {
+    document.getElementById('usersBody').innerHTML = "";
+    document.getElementById('dashErr').innerHTML = "<div class='empty-msg'>No one's signed up yet.</div>";
+    return;
+  }
+  document.getElementById('dashErr').innerHTML = "";
+
+  const rows = users.map(u => {
+    const joined = u.created_at ? new Date(u.created_at).toLocaleDateString() : '—';
+    const lastRide = u.last_ride ? new Date(u.last_ride).toLocaleDateString() : '<span class="no">never</span>';
+    const strava = u.strava_connected ? '<span class="yes">✓</span>' : '<span class="no">—</span>';
+    const profile = u.profile_complete ? '<span class="yes">✓</span>' : '<span class="no">—</span>';
+    return "<tr>"
+      + "<td data-label='Name'>" + esc(u.name) + "</td>"
+      + "<td data-label='Email'>" + esc(u.email) + "</td>"
+      + "<td data-label='Joined'>" + joined + "</td>"
+      + "<td data-label='Rides'>" + u.ride_count + "</td>"
+      + "<td data-label='Last Ride'>" + lastRide + "</td>"
+      + "<td data-label='Strava'>" + strava + "</td>"
+      + "<td data-label='Profile'>" + profile + "</td>"
+      + "</tr>";
+  }).join('');
+  document.getElementById('usersBody').innerHTML = rows;
+}
+
+if (token) tryLoad();
+</script>
+</body>
+</html>
