@@ -2,10 +2,18 @@
 ═══════════════════════════════════════════════════════════════════
 CYCLING COACH — admin.html
 
-VERSION: 1.0.0  (2026-07-19)
+VERSION: 1.0.1  (2026-07-22)
 Standalone monitor page — NOT linked from the main app, so beta
 testers never see it. Reads GET /admin/users, which is already
 restricted server-side to ADMIN_EMAILS in main.py.
+
+CHANGELOG
+  1.0.1 — fixed "Last Ride" showing one day earlier than reality.
+          The date-only string from the DB (e.g. "2026-07-22") was
+          being parsed as UTC midnight, then converted to local time
+          for display — which rolls it back a day for anyone west
+          of UTC. Forced local-time parsing instead.
+  1.0.0   initial version
 
 Deploy alongside cycling_coach_app.html in the same GitHub Pages
 repo (github.com/MTP1402/cycling-dashboard). Access directly via:
@@ -164,7 +172,7 @@ function renderUsers(users) {
 
   const rows = users.map(u => {
     const joined = u.created_at ? new Date(u.created_at).toLocaleDateString() : '—';
-    const lastRide = u.last_ride ? new Date(u.last_ride).toLocaleDateString() : '<span class="no">never</span>';
+    const lastRide = u.last_ride ? new Date(u.last_ride + 'T12:00:00').toLocaleDateString() : '<span class="no">never</span>';
     const strava = u.strava_connected ? '<span class="yes">✓</span>' : '<span class="no">—</span>';
     const profile = u.profile_complete ? '<span class="yes">✓</span>' : '<span class="no">—</span>';
     return "<tr>"
