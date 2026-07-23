@@ -2,11 +2,30 @@
 ═══════════════════════════════════════════════════════════════════
 CYCLING COACH — cycling_coach_app.html
 
-VERSION: 1.5.3  (2026-07-19)
-Check this against the small "v1.5.3" tag in the app header once
+VERSION: 1.5.5  (2026-07-22)
+Check this against the small "v1.5.5" tag in the app header once
 loaded — the two should always match, or something didn't deploy.
 
 CHANGELOG
+  1.5.5 (2026-07-22) — voice input still cutting off on Android
+                        (confirmed on Galaxy S22, with and without a
+                        headset) even after 1.5.4's auto-restart —
+                        turns out this is a documented, open Chromium
+                        bug: continuous mode doesn't reliably keep
+                        listening on Android, and can silently stop
+                        capturing without properly firing the event
+                        that would trigger a restart. Now forces a
+                        restart cycle after every phrase instead of
+                        trusting the browser to stay open on its own.
+  1.5.4 (2026-07-22) — voice input still cut off on short pauses
+                        despite continuous mode (1.5.3) — that flag
+                        is a request to the browser, not a guarantee,
+                        and some platforms (mobile Chrome, iOS
+                        Safari) end the session anyway. Now if that
+                        happens without the user tapping stop, it
+                        auto-restarts within ~200ms — so a pause
+                        never actually ends the mic, regardless of
+                        how well a given browser honors continuous.
   1.5.3 (2026-07-19) — fixed voice input cutting off after a short
                         pause. recognition.continuous was never set,
                         so it defaulted to false — any pause read as
@@ -172,7 +191,7 @@ iframe { width: 100%; height: 800px; border: none; }
       <button class="nav-btn" id="navProfileBtn" onclick="showPage('interview', this)">👤 Profile</button>
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
-      <span style="font-size:10px;color:#bbb;">v1.5.3</span>
+      <span style="font-size:10px;color:#bbb;">v1.5.5</span>
       <button class="logout" onclick="logout()">Sign out</button>
     </div>
   </div>
@@ -330,17 +349,18 @@ function startVoiceInput(inputId, micBtnId) {
 
   // Tap again while recording = stop manually
   if (micBtn.classList.contains('recording')) {
-    if (activeRecognition) activeRecognition.stop();
+    if (activeRecognition) { activeRecognition.intentionalStop = true; activeRecognition.stop(); }
     return;
   }
   // Starting a new mic stops any other one that's still listening
-  if (activeRecognition) activeRecognition.stop();
+  if (activeRecognition) { activeRecognition.intentionalStop = true; activeRecognition.stop(); }
 
   const recognition = new SpeechRecognition();
   recognition.lang = 'en-US';
   recognition.continuous = true;
   recognition.interimResults = false;
   recognition.maxAlternatives = 1;
+  recognition.intentionalStop = false;
   activeRecognition = recognition;
 
   micBtn.innerHTML = '<span class="rec-dot"></span>';
@@ -348,28 +368,52 @@ function startVoiceInput(inputId, micBtnId) {
   micBtn.title = 'Tap to stop';
 
   // Safety net — stop automatically after 90s so a forgotten mic doesn't run forever
-  const safetyTimeout = setTimeout(() => { recognition.stop(); }, 90000);
+  const safetyTimeout = setTimeout(() => {
+    recognition.intentionalStop = true;
+    recognition.stop();
+  }, 90000);
 
-  recognition.onresult = (event) => {
-    let finalText = '';
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      if (event.results[i].isFinal) finalText += event.results[i][0].transcript;
-    }
-    if (finalText.trim()) {
-      input.value = (input.value ? input.value.trim() + ' ' : '') + finalText.trim();
-    }
-  };
-  recognition.onerror = (event) => {
-    if (event.error !== 'no-speech' && event.error !== 'aborted') {
-      alert("Voice input error: " + event.error);
-    }
-  };
-  recognition.onend = () => {
+  function cleanup() {
     clearTimeout(safetyTimeout);
     micBtn.innerHTML = '🎤';
     micBtn.classList.remove('recording');
     micBtn.title = 'Voice input';
     if (activeRecognition === recognition) activeRecognition = null;
+  }
+
+  recognition.onresult = (event) => {
+    let finalText = '';
+    let gotFinal = false;
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      if (event.results[i].isFinal) { finalText += event.results[i][0].transcript; gotFinal = true; }
+    }
+    if (finalText.trim()) {
+      input.value = (input.value ? input.value.trim() + ' ' : '') + finalText.trim();
+    }
+    // Android's continuous mode is unreliable (documented Chromium bug) — it can
+    // silently stop capturing after a phrase without properly ending the session.
+    // Force a quick restart cycle after every result rather than trust it to keep
+    // listening on its own. onend's auto-restart logic below picks this back up.
+    if (gotFinal) recognition.stop();
+  };
+  recognition.onerror = (event) => {
+    // Permission/hardware problems are terminal — don't try to restart those.
+    if (event.error === 'not-allowed' || event.error === 'service-not-allowed' || event.error === 'audio-capture') {
+      recognition.intentionalStop = true;
+      alert("Voice input error: " + event.error);
+    }
+    // Everything else (no-speech, network blips, etc.) — let onend decide, it'll auto-resume.
+  };
+  recognition.onend = () => {
+    // Browser ended the session on its own (a pause, a platform quirk) rather than
+    // the user tapping stop — pick it back up so a pause never actually ends the mic.
+    if (!recognition.intentionalStop && activeRecognition === recognition) {
+      setTimeout(() => {
+        try { recognition.start(); } catch(e) { cleanup(); }
+      }, 200);
+      return;
+    }
+    cleanup();
   };
   recognition.start();
 }
