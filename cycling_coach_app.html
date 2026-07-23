@@ -2,11 +2,22 @@
 ═══════════════════════════════════════════════════════════════════
 CYCLING COACH — cycling_coach_app.html
 
-VERSION: 1.5.5  (2026-07-22)
-Check this against the small "v1.5.5" tag in the app header once
+VERSION: 1.6.0  (2026-07-22)
+Check this against the small "v1.6.0" tag in the app header once
 loaded — the two should always match, or something didn't deploy.
 
 CHANGELOG
+  1.6.0 (2026-07-22) — retired the custom mic button on phones after
+                        extensive testing showed the underlying
+                        browser API (Web Speech API) has real,
+                        documented limits on Android and inconsistent
+                        behavior on iOS that no amount of app-side
+                        workaround fully fixes. Desktop keeps the mic
+                        button (confirmed working well there); on
+                        phones it's hidden in favor of a hint pointing
+                        to the keyboard's own built-in dictation —
+                        Gboard/Samsung Keyboard/iOS dictation are
+                        mature, reliable, and need zero code from us.
   1.5.5 (2026-07-22) — voice input still cutting off on Android
                         (confirmed on Galaxy S22, with and without a
                         headset) even after 1.5.4's auto-restart —
@@ -191,7 +202,7 @@ iframe { width: 100%; height: 800px; border: none; }
       <button class="nav-btn" id="navProfileBtn" onclick="showPage('interview', this)">👤 Profile</button>
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
-      <span style="font-size:10px;color:#bbb;">v1.5.5</span>
+      <span style="font-size:10px;color:#bbb;">v1.6.0</span>
       <button class="logout" onclick="logout()">Sign out</button>
     </div>
   </div>
@@ -258,6 +269,7 @@ iframe { width: 100%; height: 800px; border: none; }
           <button type="button" class="mic-btn" id="noteMicBtn" onclick="startVoiceInput('noteText','noteMicBtn')" title="Voice input">🎤</button>
           <button onclick="addNote()">Save</button>
         </div>
+        <div class="mic-hint" id="noteMicHint" style="display:none;font-size:11px;color:#888;margin-top:6px;">💡 Tap the field above and use your keyboard's own microphone to dictate — more reliable than a browser mic button.</div>
         <div class="status" id="noteStatus"></div>
       </div>
     </div>
@@ -292,6 +304,7 @@ iframe { width: 100%; height: 800px; border: none; }
           <button type="button" class="mic-btn" id="coachMicBtn" onclick="startVoiceInput('coachChatInput','coachMicBtn')" title="Voice input">🎤</button>
           <button id="coachChatSendBtn" onclick="sendCoachChat()">Send</button>
         </div>
+        <div class="mic-hint" id="coachMicHint" style="display:none;font-size:11px;color:#888;margin-top:6px;">💡 Tap the field above and use your keyboard's own microphone to dictate — more reliable than a browser mic button.</div>
 
         <div class="disclaimer">
           ⚠️ <strong>Disclaimer:</strong> This coaching chat is for informational purposes only. We are not medical professionals or certified coaches. Always consult your healthcare provider before starting or changing any exercise program.
@@ -314,6 +327,7 @@ iframe { width: 100%; height: 800px; border: none; }
           <button type="button" class="mic-btn" id="profileMicBtn" onclick="startVoiceInput('chatInput','profileMicBtn')" title="Voice input">🎤</button>
           <button id="chatSendBtn" onclick="sendChat()">Send</button>
         </div>
+        <div class="mic-hint" id="profileMicHint" style="display:none;font-size:11px;color:#888;margin-top:6px;">💡 Tap the field above and use your keyboard's own microphone to dictate — more reliable than a browser mic button.</div>
 
         <div class="profile-summary" id="profileSummary">
           <h3>📋 Your profile so far</h3>
@@ -810,6 +824,21 @@ async function syncStrava() {
     status.className = 'status err';
   }
   btn.disabled = false;
+}
+
+function isMobileDevice() {
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
+if (isMobileDevice()) {
+  ['coachMicBtn','profileMicBtn','noteMicBtn'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.style.display = 'none';
+  });
+  ['coachMicHint','profileMicHint','noteMicHint'].forEach(id => {
+    const hint = document.getElementById(id);
+    if (hint) hint.style.display = 'block';
+  });
 }
 
 if (token) showApp();
