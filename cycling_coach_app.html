@@ -2,11 +2,44 @@
 ═══════════════════════════════════════════════════════════════════
 CYCLING COACH — cycling_coach_app.html
 
-VERSION: 1.6.0  (2026-07-22)
-Check this against the small "v1.6.0" tag in the app header once
+VERSION: 1.8.0  (2026-07-27)
+Check this against the small "v1.8.0" tag in the app header once
 loaded — the two should always match, or something didn't deploy.
 
 CHANGELOG
+  1.8.0 (2026-07-27) — fixed the mic not stopping when Send was hit —
+                        the mic and Send button were never actually
+                        connected before this; sending now always
+                        stops whatever's recording via a shared
+                        stopActiveRecognition() helper, called at the
+                        start of all three send/save functions
+                        (Coaching chat, Profile chat, Post-Ride
+                        Debrief). Also added a browsable Ride History
+                        section on the Coaching page — the coaching
+                        memory's dated log (already built, already
+                        populated) finally has somewhere to actually
+                        be seen, with a simple search box to filter by
+                        topic or date. No backend changes needed for
+                        this — the data was already there, this is
+                        purely a UI on top of it. While fixing this,
+                        found and closed a real gap: HTML escaping in
+                        two places (history summaries, equipment
+                        dropdown names) was only escaping "<", not ">"
+                        or "&" — not exploitable as-is since a lone
+                        ">" or "&" without a preceding raw "<" can't
+                        open a tag, but inconsistent with the fuller
+                        escaping already used elsewhere, so brought up
+                        to the same standard via a shared escapeHtml()
+                        helper.
+  1.7.0 (2026-07-27) — added the equipment/setup picker card, shown
+                        after a successful FIT upload — a quick
+                        dropdown, deliberately kept separate from the
+                        Post-Ride Debrief note field rather than
+                        folded into it as another question to answer.
+                        The persistent last-ride synopsis card lives
+                        entirely server-side (part of the Dashboard's
+                        rendered HTML from /dashboard) — no frontend
+                        changes needed for that piece.
   1.6.0 (2026-07-22) — retired the custom mic button on phones after
                         extensive testing showed the underlying
                         browser API (Web Speech API) has real,
@@ -144,6 +177,9 @@ iframe { width: 100%; height: 800px; border: none; }
 .settings-card { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; margin-bottom: 14px; }
 .settings-card h2 { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
 .settings-card .sub { font-size: 12px; color: #888; margin-bottom: 16px; }
+.history-entry { background: #fafafa; border: 1px solid #e8e8e8; border-radius: 8px; padding: 12px 14px; }
+.history-entry .hdate { font-size: 11px; font-weight: 600; color: #3b82f6; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+.history-entry .hsummary { font-size: 13px; color: #333; line-height: 1.55; }
 .chat-window { border: 1px solid #e0e0e0; border-radius: 8px; height: 380px; overflow-y: auto; padding: 14px; background: #fafafa; margin-bottom: 10px; display: flex; flex-direction: column; gap: 10px; }
 .msg { max-width: 80%; padding: 10px 14px; border-radius: 12px; font-size: 13px; line-height: 1.5; }
 .msg.coach { background: #e6f0ff; color: #1e3a6e; align-self: flex-start; border-bottom-left-radius: 4px; }
@@ -202,7 +238,7 @@ iframe { width: 100%; height: 800px; border: none; }
       <button class="nav-btn" id="navProfileBtn" onclick="showPage('interview', this)">👤 Profile</button>
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
-      <span style="font-size:10px;color:#bbb;">v1.6.0</span>
+      <span style="font-size:10px;color:#bbb;">v1.8.0</span>
       <button class="logout" onclick="logout()">Sign out</button>
     </div>
   </div>
@@ -272,6 +308,17 @@ iframe { width: 100%; height: 800px; border: none; }
         <div class="mic-hint" id="noteMicHint" style="display:none;font-size:11px;color:#888;margin-top:6px;">💡 Tap the field above and use your keyboard's own microphone to dictate — more reliable than a browser mic button.</div>
         <div class="status" id="noteStatus"></div>
       </div>
+
+      <div class="upload-card" id="equipmentPickerCard" style="display:none;">
+        <h2>🚲 What were you riding?</h2>
+        <div class="notes-row">
+          <select id="equipmentSelect" style="flex:1;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+            <option value="">Select a bike/setup...</option>
+          </select>
+          <button onclick="saveRideEquipment()">Save</button>
+        </div>
+        <div class="status" id="equipmentStatus"></div>
+      </div>
     </div>
   </div>
 
@@ -309,6 +356,14 @@ iframe { width: 100%; height: 800px; border: none; }
         <div class="disclaimer">
           ⚠️ <strong>Disclaimer:</strong> This coaching chat is for informational purposes only. We are not medical professionals or certified coaches. Always consult your healthcare provider before starting or changing any exercise program.
         </div>
+      </div>
+
+      <div class="settings-card" id="historyCard">
+        <h2>📚 Ride History</h2>
+        <div class="sub">Past coaching synopses — the high points, not the full conversation. Search or scroll through.</div>
+        <input type="text" id="historySearch" placeholder="Search past rides — a topic, a date, anything..." oninput="filterHistory()" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;margin-bottom:12px;">
+        <div id="historyList" style="max-height:420px;overflow-y:auto;display:flex;flex-direction:column;gap:10px;"></div>
+        <div class="status" id="historyStatus"></div>
       </div>
     </div>
   </div>
@@ -349,8 +404,24 @@ let userName = localStorage.getItem("cc_name") || "";
 let chatHistory = [];
 let currentProfile = {};
 let coachChatHistory = [];
+let currentUploadRideId = null;
+let allHistoryEntries = [];
 
 let activeRecognition = null;
+
+function stopActiveRecognition() {
+  // Sending a message should always stop the mic, not leave it running until
+  // someone remembers to tap it again — the mic and Send were never
+  // connected before this. Safe to call even if nothing's recording.
+  if (activeRecognition) {
+    activeRecognition.intentionalStop = true;
+    activeRecognition.stop();
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
 
 function startVoiceInput(inputId, micBtnId) {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -554,6 +625,7 @@ async function sendChat() {
   const btn = document.getElementById('chatSendBtn');
   const msg = input.value.trim();
   if (!msg) return;
+  stopActiveRecognition();
   input.value = '';
   btn.disabled = true;
 
@@ -643,8 +715,49 @@ async function deleteImport(id) {
   } catch(e) {}
 }
 
+function renderHistoryList(entries) {
+  const list = document.getElementById('historyList');
+  const status = document.getElementById('historyStatus');
+  if (!entries.length) {
+    list.innerHTML = '';
+    status.textContent = allHistoryEntries.length ? 'No matches for that search.' : 'No ride history yet.';
+    status.className = 'status';
+    return;
+  }
+  status.textContent = '';
+  list.innerHTML = entries.map(e => {
+    const d = new Date(e.entry_date + 'T12:00:00');
+    const dateStr = d.toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric', year:'numeric'});
+    const safe = escapeHtml(e.summary);
+    return "<div class='history-entry'><div class='hdate'>"+dateStr+"</div><div class='hsummary'>"+safe+"</div></div>";
+  }).join('');
+}
+
+function filterHistory() {
+  const q = document.getElementById('historySearch').value.trim().toLowerCase();
+  if (!q) { renderHistoryList(allHistoryEntries); return; }
+  const filtered = allHistoryEntries.filter(e =>
+    e.summary.toLowerCase().includes(q) || e.entry_date.includes(q)
+  );
+  renderHistoryList(filtered);
+}
+
+async function loadHistory() {
+  const status = document.getElementById('historyStatus');
+  try {
+    const res = await fetch(API+"/coaching/memory", {headers:{Authorization:"Bearer "+token}});
+    const data = await res.json();
+    allHistoryEntries = data.dated_log || [];
+    renderHistoryList(allHistoryEntries);
+  } catch(e) {
+    status.textContent = "Couldn't load history right now.";
+    status.className = 'status err';
+  }
+}
+
 async function loadCoaching() {
   loadImports();
+  loadHistory();
   if (coachChatHistory.length > 0) return; // conversation already started this session
   let opener = "Hey " + userName + "! How's training going? Tell me about your last ride.";
   try {
@@ -671,6 +784,7 @@ async function sendCoachChat() {
   const btn = document.getElementById('coachChatSendBtn');
   const msg = input.value.trim();
   if (!msg) return;
+  stopActiveRecognition();
   input.value = '';
   btn.disabled = true;
 
@@ -737,7 +851,7 @@ async function uploadFit() {
   const files = Array.from(fileInput.files);
   if (!files.length) { status.textContent="Please select at least one FIT file"; status.className='status err'; return; }
   btn.disabled = true;
-  let lastCoaching = null; let successCount = 0; let errors = [];
+  let lastCoaching = null; let lastRideId = null; let successCount = 0; let errors = [];
   for (let i=0; i<files.length; i++) {
     const file = files[i];
     status.textContent = "Uploading " + (i+1) + " of " + files.length + ": " + file.name + "...";
@@ -749,7 +863,7 @@ async function uploadFit() {
       const data = await res.json();
       if (!res.ok) { errors.push(file.name+": "+data.detail); continue; }
       successCount++;
-      if (data.coaching && data.coaching !== "AI coaching unavailable." && !data.duplicate) lastCoaching = data.coaching;
+      if (data.coaching && data.coaching !== "AI coaching unavailable." && !data.duplicate) { lastCoaching = data.coaching; lastRideId = data.ride_id; }
     } catch(e) { errors.push(file.name+": "+e.message); }
   }
   btn.disabled = false;
@@ -764,12 +878,18 @@ async function uploadFit() {
     document.getElementById('coachingText').textContent = lastCoaching;
     document.getElementById('coachingCard').style.display = 'block';
   }
+  if (lastRideId) {
+    currentUploadRideId = lastRideId;
+    document.getElementById('equipmentPickerCard').style.display = 'block';
+    loadEquipmentOptions();
+  }
 }
 
 async function addNote() {
   const note = document.getElementById('noteText').value;
   const status = document.getElementById('noteStatus');
   if (!note) return;
+  stopActiveRecognition();
   const res = await fetch(API+"/notes", {method:"POST",
     headers:{Authorization:"Bearer "+token, "Content-Type":"application/x-www-form-urlencoded"},
     body:"note="+encodeURIComponent(note)});
@@ -777,6 +897,39 @@ async function addNote() {
     status.textContent = "Note saved ✓"; status.className='status ok';
     document.getElementById('noteText').value='';
     setTimeout(()=>status.textContent='', 3000);
+  }
+}
+
+async function loadEquipmentOptions() {
+  const select = document.getElementById('equipmentSelect');
+  try {
+    const res = await fetch(API+"/equipment", {headers:{Authorization:"Bearer "+token}});
+    const data = await res.json();
+    const options = ['<option value="">Select a bike/setup...</option>'];
+    (data.equipment || []).forEach(eq => {
+      options.push('<option value="'+eq.id+'">'+escapeHtml(eq.name)+'</option>');
+    });
+    select.innerHTML = options.join('');
+  } catch(e) {}
+}
+
+async function saveRideEquipment() {
+  const select = document.getElementById('equipmentSelect');
+  const status = document.getElementById('equipmentStatus');
+  const equipmentId = select.value;
+  if (!equipmentId || !currentUploadRideId) { status.textContent = "Pick a bike/setup first"; status.className='status err'; return; }
+  try {
+    const res = await fetch(API+"/rides/"+currentUploadRideId+"/equipment", {method:"POST",
+      headers:{Authorization:"Bearer "+token, "Content-Type":"application/x-www-form-urlencoded"},
+      body:"equipment_id="+encodeURIComponent(equipmentId)});
+    if (res.ok) {
+      status.textContent = "Saved ✓"; status.className='status ok';
+      setTimeout(()=>status.textContent='', 3000);
+    } else {
+      status.textContent = "Couldn't save — try again"; status.className='status err';
+    }
+  } catch(e) {
+    status.textContent = "Couldn't save — try again"; status.className='status err';
   }
 }
 
