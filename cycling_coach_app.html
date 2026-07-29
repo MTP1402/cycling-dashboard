@@ -1101,4 +1101,50 @@ function connectStrava() {
   const url = API + "/strava/connect?_auth=" + encodeURIComponent(token);
   const w = window.open(url, 'stravaAuth', 'width=600,height=700,left=200,top=100');
   const check = setInterval(() => {
-    try { if (w && w.closed) { clearInterval(check); setTimeout(checkS
+    try { if (w && w.closed) { clearInterval(check); setTimeout(checkStravaStatus, 1500); } } catch(e) {}
+  }, 1000);
+}
+
+async function syncStrava() {
+  const btn = document.getElementById('syncBtn');
+  const status = document.getElementById('syncStatus');
+  const days = document.getElementById('syncDays').value;
+  btn.disabled = true;
+  status.textContent = 'Syncing from Strava... this may take a minute.';
+  status.className = 'status';
+  try {
+    const res = await fetch(API+"/strava/sync", {
+      method:"POST",
+      headers:{Authorization:"Bearer "+token, "Content-Type":"application/x-www-form-urlencoded"},
+      body:"days_back="+days
+    });
+    const data = await res.json();
+    status.textContent = data.message || (data.imported + " activities imported, " + data.skipped + " already existed.");
+    status.className = 'status ok';
+    loadDashboard();
+  } catch(e) {
+    status.textContent = "Sync failed: " + e.message;
+    status.className = 'status err';
+  }
+  btn.disabled = false;
+}
+
+function isMobileDevice() {
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
+if (isMobileDevice()) {
+  ['coachMicBtn','profileMicBtn','noteMicBtn','historyMicBtn'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.style.display = 'none';
+  });
+  ['coachMicHint','profileMicHint','noteMicHint','historyMicHint'].forEach(id => {
+    const hint = document.getElementById(id);
+    if (hint) hint.style.display = 'block';
+  });
+}
+
+if (token) showApp();
+</script>
+</body>
+</html>
