@@ -1,12 +1,25 @@
-<!-- 
+<!--
 ═══════════════════════════════════════════════════════════════════
 CYCLING COACH — cycling_coach_app.html
 
-VERSION: 1.8.1  (2026-07-27)
-Check this against the small "v1.8.1" tag in the app header once
+VERSION: 1.9.0  (2026-07-27)
+Check this against the small "v1.9.0" tag in the app header once
 loaded — the two should always match, or something didn't deploy.
 
 CHANGELOG
+  1.9.0 (2026-07-27) — added the ride-detail page (first working
+                        slice — stats + 4 charts, not the full
+                        original spec). Reached via a new "View ride
+                        details" link on the Coach's assessment card
+                        after upload, using the ride_id already
+                        tracked for the equipment picker. Not part of
+                        the main nav — a dedicated page reached by
+                        link, with its own "Back to Activities" link
+                        since there's no corresponding nav tab. Same
+                        pattern as the Dashboard: server-rendered HTML
+                        shown in an iframe via fetch+srcdoc (not a
+                        direct iframe src, since the endpoint needs
+                        the auth header a plain src can't carry).
   1.8.1 (2026-07-27) — added voice input to the Ride History search
                         box, same mic pattern as the other three
                         fields. Along the way, found and fixed a real
@@ -253,7 +266,7 @@ iframe { width: 100%; height: 800px; border: none; }
       <button class="nav-btn" id="navProfileBtn" onclick="showPage('interview', this)">👤 Profile</button>
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
-      <span style="font-size:10px;color:#bbb;">v1.8.1</span>
+      <span style="font-size:10px;color:#bbb;">v1.9.0</span>
       <button class="logout" onclick="logout()">Sign out</button>
     </div>
   </div>
@@ -263,6 +276,16 @@ iframe { width: 100%; height: 800px; border: none; }
     <div style="padding:20px;">
       <div class="dashboard-frame">
         <iframe id="dashFrame" src="about:blank"></iframe>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIDE DETAIL PAGE (not in main nav — reached via a link, not a tab) -->
+  <div class="page" id="rideDetailPage">
+    <div style="padding:20px;">
+      <p style="margin:0 0 12px;"><a href="#" onclick="showPage('activities', document.getElementById('navActivitiesBtn')); return false;" style="font-size:13px;color:#3b82f6;font-weight:500;">← Back to Activities</a></p>
+      <div class="dashboard-frame">
+        <iframe id="rideDetailFrame" src="about:blank"></iframe>
       </div>
     </div>
   </div>
@@ -310,6 +333,8 @@ iframe { width: 100%; height: 800px; border: none; }
         <p id="coachingText"></p>
         <p style="margin-top:10px;">
           <a href="#" onclick="goToCoaching(); return false;" style="font-size:12px;color:#3b82f6;font-weight:500;">💬 Discuss this ride with your coach →</a>
+          &nbsp;&nbsp;
+          <a href="#" onclick="openRideDetail(currentUploadRideId); return false;" style="font-size:12px;color:#3b82f6;font-weight:500;">📊 View ride details →</a>
         </p>
       </div>
 
@@ -600,6 +625,21 @@ async function loadDashboard() {
   const res = await fetch(API+"/dashboard", {headers:{Authorization:"Bearer "+token}});
   const html = await res.text();
   document.getElementById('dashFrame').srcdoc = html;
+}
+
+async function openRideDetail(rideId) {
+  if (!rideId) { alert("No ride selected yet — upload a ride first."); return; }
+  showPage('rideDetail', null);
+  const frame = document.getElementById('rideDetailFrame');
+  frame.srcdoc = "<body style='font-family:sans-serif;padding:20px;color:#888;'>Loading...</body>";
+  try {
+    const res = await fetch(API+"/rides/"+rideId+"/detail-page", {headers:{Authorization:"Bearer "+token}});
+    if (!res.ok) { frame.srcdoc = "<body style='font-family:sans-serif;padding:20px;color:#c33;'>Couldn't load this ride.</body>"; return; }
+    const html = await res.text();
+    frame.srcdoc = html;
+  } catch(e) {
+    frame.srcdoc = "<body style='font-family:sans-serif;padding:20px;color:#c33;'>Couldn't load this ride.</body>";
+  }
 }
 
 async function loadInterview() {
