@@ -2,11 +2,20 @@
 ═══════════════════════════════════════════════════════════════════
 CYCLING COACH — cycling_coach_app.html
 
-VERSION: 1.9.1  (2026-07-27)
-Check this against the small "v1.9.1" tag in the app header once
+VERSION: 1.10.0  (2026-07-27)
+Check this against the small "v1.10.0" tag in the app header once
 loaded — the two should always match, or something didn't deploy.
 
 CHANGELOG
+  1.10.0 (2026-07-27) — Ride History cards are now clickable, linking
+                        through to that ride's detail page via the new
+                        by-date lookup. Entries with no matching ride
+                        (several of tonight's seeded historical ones
+                        genuinely have none) show a clear inline
+                        message rather than a broken link or silent
+                        failure. The ride-detail page itself now shows
+                        a left-right balance chart when the data is
+                        actually present (FIT uploads only).
   1.9.1 (2026-07-27) — added a "My Bikes & Setups" management card on
                         the Profile page — a real gap up to now, since
                         equipment was only ever addable through the
@@ -276,7 +285,7 @@ iframe { width: 100%; height: 800px; border: none; }
       <button class="nav-btn" id="navProfileBtn" onclick="showPage('interview', this)">👤 Profile</button>
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
-      <span style="font-size:10px;color:#bbb;">v1.9.1</span>
+      <span style="font-size:10px;color:#bbb;">v1.10.0</span>
       <button class="logout" onclick="logout()">Sign out</button>
     </div>
   </div>
@@ -814,8 +823,28 @@ function renderHistoryList(entries) {
     const d = new Date(e.entry_date + 'T12:00:00');
     const dateStr = d.toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric', year:'numeric'});
     const safe = escapeHtml(e.summary);
-    return "<div class='history-entry'><div class='hdate'>"+dateStr+"</div><div class='hsummary'>"+safe+"</div></div>";
+    return "<div class='history-entry' style='cursor:pointer;' onclick=\"viewHistoryRide('"+e.entry_date+"')\">"
+      + "<div class='hdate'>"+dateStr+" <span style='float:right;color:#3b82f6;font-weight:500;'>View ride →</span></div>"
+      + "<div class='hsummary'>"+safe+"</div></div>";
   }).join('');
+}
+
+async function viewHistoryRide(entryDate) {
+  const status = document.getElementById('historyStatus');
+  try {
+    const res = await fetch(API+"/rides/by-date/"+entryDate, {headers:{Authorization:"Bearer "+token}});
+    if (res.ok) {
+      const data = await res.json();
+      openRideDetail(data.ride_id);
+    } else {
+      status.textContent = "No detailed ride data on file for that date — this entry may be from a memory seed without a matching upload.";
+      status.className = 'status';
+      setTimeout(()=>status.textContent='', 5000);
+    }
+  } catch(e) {
+    status.textContent = "Couldn't look that up right now.";
+    status.className = 'status err';
+  }
 }
 
 function filterHistory() {
@@ -1072,50 +1101,4 @@ function connectStrava() {
   const url = API + "/strava/connect?_auth=" + encodeURIComponent(token);
   const w = window.open(url, 'stravaAuth', 'width=600,height=700,left=200,top=100');
   const check = setInterval(() => {
-    try { if (w && w.closed) { clearInterval(check); setTimeout(checkStravaStatus, 1500); } } catch(e) {}
-  }, 1000);
-}
-
-async function syncStrava() {
-  const btn = document.getElementById('syncBtn');
-  const status = document.getElementById('syncStatus');
-  const days = document.getElementById('syncDays').value;
-  btn.disabled = true;
-  status.textContent = 'Syncing from Strava... this may take a minute.';
-  status.className = 'status';
-  try {
-    const res = await fetch(API+"/strava/sync", {
-      method:"POST",
-      headers:{Authorization:"Bearer "+token, "Content-Type":"application/x-www-form-urlencoded"},
-      body:"days_back="+days
-    });
-    const data = await res.json();
-    status.textContent = data.message || (data.imported + " activities imported, " + data.skipped + " already existed.");
-    status.className = 'status ok';
-    loadDashboard();
-  } catch(e) {
-    status.textContent = "Sync failed: " + e.message;
-    status.className = 'status err';
-  }
-  btn.disabled = false;
-}
-
-function isMobileDevice() {
-  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-}
-
-if (isMobileDevice()) {
-  ['coachMicBtn','profileMicBtn','noteMicBtn','historyMicBtn'].forEach(id => {
-    const btn = document.getElementById(id);
-    if (btn) btn.style.display = 'none';
-  });
-  ['coachMicHint','profileMicHint','noteMicHint','historyMicHint'].forEach(id => {
-    const hint = document.getElementById(id);
-    if (hint) hint.style.display = 'block';
-  });
-}
-
-if (token) showApp();
-</script>
-</body>
-</html>
+    try { if (w && w.closed) { clearInterval(check); setTimeout(checkS
