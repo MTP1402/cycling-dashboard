@@ -2,11 +2,21 @@
 ═══════════════════════════════════════════════════════════════════
 CYCLING COACH — cycling_coach_app.html
 
-VERSION: 1.9.0  (2026-07-27)
-Check this against the small "v1.9.0" tag in the app header once
+VERSION: 1.9.1  (2026-07-27)
+Check this against the small "v1.9.1" tag in the app header once
 loaded — the two should always match, or something didn't deploy.
 
 CHANGELOG
+  1.9.1 (2026-07-27) — added a "My Bikes & Setups" management card on
+                        the Profile page — a real gap up to now, since
+                        equipment was only ever addable through the
+                        AI interview, meaning anyone whose interview
+                        already happened before equipment existed
+                        (like Marc's own) started with an empty
+                        roster and no way to fix it in the app itself.
+                        No backend changes needed — POST /equipment
+                        already existed for the interview to use, this
+                        just gives it a direct front door too.
   1.9.0 (2026-07-27) — added the ride-detail page (first working
                         slice — stats + 4 charts, not the full
                         original spec). Reached via a new "View ride
@@ -266,7 +276,7 @@ iframe { width: 100%; height: 800px; border: none; }
       <button class="nav-btn" id="navProfileBtn" onclick="showPage('interview', this)">👤 Profile</button>
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
-      <span style="font-size:10px;color:#bbb;">v1.9.0</span>
+      <span style="font-size:10px;color:#bbb;">v1.9.1</span>
       <button class="logout" onclick="logout()">Sign out</button>
     </div>
   </div>
@@ -436,6 +446,17 @@ iframe { width: 100%; height: 800px; border: none; }
         <div class="disclaimer">
           ⚠️ <strong>Disclaimer:</strong> This coaching profile is for informational purposes only. We are not medical professionals or certified coaches. Always consult your healthcare provider before starting or changing any exercise program. If you have any medical conditions, please ensure you have received appropriate medical clearance before engaging in vigorous physical activity.
         </div>
+      </div>
+
+      <div class="settings-card">
+        <h2>🚲 My Bikes &amp; Setups</h2>
+        <div class="sub">The roster you pick from after each upload. The interview can build this for you, or add one directly here.</div>
+        <div id="equipmentListDisplay" style="margin-bottom:12px;font-size:13px;color:#333;"></div>
+        <div class="notes-row">
+          <input type="text" id="newEquipmentName" placeholder="e.g. Road bike - 28mm tires, Indoor trainer..." onkeydown="if(event.key==='Enter')addEquipmentDirect()">
+          <button onclick="addEquipmentDirect()">Add</button>
+        </div>
+        <div class="status" id="equipmentManageStatus"></div>
       </div>
     </div>
   </div>
@@ -643,6 +664,7 @@ async function openRideDetail(rideId) {
 }
 
 async function loadInterview() {
+  loadEquipmentList();
   // Load existing profile
   try {
     const res = await fetch(API+"/profile", {headers:{Authorization:"Bearer "+token}});
@@ -974,6 +996,42 @@ async function loadEquipmentOptions() {
     });
     select.innerHTML = options.join('');
   } catch(e) {}
+}
+
+async function loadEquipmentList() {
+  const display = document.getElementById('equipmentListDisplay');
+  try {
+    const res = await fetch(API+"/equipment", {headers:{Authorization:"Bearer "+token}});
+    const data = await res.json();
+    const items = data.equipment || [];
+    display.innerHTML = items.length
+      ? items.map(eq => "<div style='padding:6px 0;border-bottom:1px solid #eee;'>🚲 "+escapeHtml(eq.name)+"</div>").join('')
+      : "<div style='color:#888;font-size:12px;'>No bikes/setups added yet — add one below, or mention them in the profile interview above.</div>";
+  } catch(e) {
+    display.innerHTML = "<div style='color:#888;font-size:12px;'>Couldn't load your equipment right now.</div>";
+  }
+}
+
+async function addEquipmentDirect() {
+  const input = document.getElementById('newEquipmentName');
+  const status = document.getElementById('equipmentManageStatus');
+  const name = input.value.trim();
+  if (!name) return;
+  try {
+    const res = await fetch(API+"/equipment", {method:"POST",
+      headers:{Authorization:"Bearer "+token, "Content-Type":"application/x-www-form-urlencoded"},
+      body:"name="+encodeURIComponent(name)});
+    if (res.ok) {
+      input.value = '';
+      status.textContent = "Added ✓"; status.className = 'status ok';
+      setTimeout(()=>status.textContent='', 3000);
+      loadEquipmentList();
+    } else {
+      status.textContent = "Couldn't add — try again"; status.className = 'status err';
+    }
+  } catch(e) {
+    status.textContent = "Couldn't add — try again"; status.className = 'status err';
+  }
 }
 
 async function saveRideEquipment() {
