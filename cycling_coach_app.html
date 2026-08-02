@@ -2,11 +2,29 @@
 ═══════════════════════════════════════════════════════════════════
 CYCLING COACH — cycling_coach_app.html
 
-VERSION: 1.12.0  (2026-07-29)
-Check this against the small "v1.12.0" tag in the app header once
+VERSION: 1.13.0  (2026-08-03)
+Check this against the small "v1.13.0" tag in the app header once
 loaded — the two should always match, or something didn't deploy.
 
 CHANGELOG
+  1.13.0 (2026-08-03) — three small frontend additions, all wiring up
+                        to backend work shipped the same session
+                        (main.py v2.14.0): exportRideTcx(watts) and
+                        applyEstimatedFtp(watts), both callable from
+                        inside the ride-detail iframe via
+                        window.parent (the iframe is same-origin —
+                        srcdoc inherits the parent's origin — so this
+                        is a normal cross-frame function call, no
+                        postMessage needed); a flagged-duplicate badge
+                        on Ride History entries, surfacing the
+                        existing resolve flow (deleteFlaggedRide/
+                        keepBothFlagged, already built for the
+                        Dashboard's review card) in-context rather
+                        than only in that one card, which is easy to
+                        miss if a rider doesn't happen to scroll to
+                        it — the badge jumps to and scrolls that same
+                        card into view rather than duplicating its
+                        resolve UI.
   1.12.0 (2026-07-29) — added the flagged-duplicate review card on
                         the Dashboard, completing the backend piece
                         from v2.8.0/2.8.0. Shows any rides flagged as
@@ -304,7 +322,7 @@ iframe { width: 100%; height: 800px; border: none; }
       <button class="nav-btn" id="navProfileBtn" onclick="showPage('interview', this)">👤 Profile</button>
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
-      <span style="font-size:10px;color:#bbb;">v1.12.0</span>
+      <span style="font-size:10px;color:#bbb;">v1.13.0</span>
       <button class="logout" onclick="logout()">Sign out</button>
     </div>
   </div>
@@ -762,6 +780,54 @@ async function exportRidesExcel() {
   btn.textContent = originalText;
 }
 
+// Called from inside the ride-detail iframe via window.parent.exportRideTcx(id) —
+// the iframe is same-origin (srcdoc inherits the parent's origin) so this is a
+// normal cross-frame function call, no postMessage needed. Same fetch-then-blob
+// pattern as exportRidesExcel above, since the endpoint needs the auth header a
+// plain link/src can't carry.
+async function exportRideTcx(rideId) {
+  if (!rideId) return;
+  try {
+    const res = await fetch(API+"/rides/"+rideId+"/export-tcx", {headers:{Authorization:"Bearer "+token}});
+    if (!res.ok) { alert("TCX export failed. Please try again."); return; }
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'ride_' + rideId + '.tcx';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  } catch(e) {
+    alert("TCX export failed. Please try again.");
+  }
+}
+window.exportRideTcx = exportRideTcx;
+
+// Called from inside the ride-detail iframe's FTP-estimate banner via
+// window.parent.applyEstimatedFtp(watts). Uses the targeted POST /profile/ftp
+// endpoint (single column, doesn't touch the rest of the profile) — never
+// auto-applies on its own, always requires this explicit confirm step.
+async function applyEstimatedFtp(watts) {
+  if (!confirm("Update your profile FTP to " + watts + "W?")) return;
+  try {
+    const res = await fetch(API+"/profile/ftp", {method:"POST",
+      headers:{Authorization:"Bearer "+token, "Content-Type":"application/x-www-form-urlencoded"},
+      body:"ftp="+encodeURIComponent(watts)});
+    if (res.ok) {
+      alert("FTP updated to " + watts + "W.");
+      currentProfile.ftp = watts;
+    } else {
+      const data = await res.json().catch(()=>({}));
+      alert(data.detail || "Couldn't update FTP — try again.");
+    }
+  } catch(e) {
+    alert("Couldn't update FTP — try again.");
+  }
+}
+window.applyEstimatedFtp = applyEstimatedFtp;
+
 async function openRideDetail(rideId) {
   if (!rideId) { alert("No ride selected yet — upload a ride first."); return; }
   showPage('rideDetail', null);
@@ -928,10 +994,29 @@ function renderHistoryList(entries) {
     const d = new Date(e.entry_date + 'T12:00:00');
     const dateStr = d.toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric', year:'numeric'});
     const safe = escapeHtml(e.summary);
+    // Badge surfaces the existing flagged-duplicate resolve flow in-context —
+    // previously only visible via the one Dashboard review card, easy to miss
+    // if a rider doesn't happen to scroll to it. stopPropagation so tapping
+    // the badge doesn't also trigger the row's own viewHistoryRide click.
+    const badge = e.flagged
+      ? " <span onclick=\"event.stopPropagation();goToFlaggedReview();\" style='background:#fef3c7;color:#92400e;border-radius:4px;padding:2px 8px;font-size:10px;font-weight:600;cursor:pointer;'>⚠️ possible dup</span>"
+      : "";
     return "<div class='history-entry' style='cursor:pointer;' onclick=\"viewHistoryRide('"+e.entry_date+"')\">"
-      + "<div class='hdate'>"+dateStr+" <span style='float:right;color:#3b82f6;font-weight:500;'>View ride →</span></div>"
+      + "<div class='hdate'>"+dateStr+badge+" <span style='float:right;color:#3b82f6;font-weight:500;'>View ride →</span></div>"
       + "<div class='hsummary'>"+safe+"</div></div>";
   }).join('');
+}
+
+// Jumps to the Dashboard's existing flagged-duplicate review card and scrolls
+// it into view — reuses that card's existing resolve UI (deleteFlaggedRide/
+// keepBothFlagged) rather than rebuilding a second resolve flow just for the
+// badge. A short delay lets the Dashboard iframe/card finish loading first.
+function goToFlaggedReview() {
+  showPage('dashboard', document.getElementById('navDashboardBtn'));
+  setTimeout(() => {
+    const card = document.getElementById('flaggedReviewCard');
+    if (card) card.scrollIntoView({behavior:'smooth', block:'start'});
+  }, 300);
 }
 
 async function viewHistoryRide(entryDate) {
