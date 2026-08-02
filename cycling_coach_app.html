@@ -2,11 +2,22 @@
 ═══════════════════════════════════════════════════════════════════
 CYCLING COACH — cycling_coach_app.html
 
-VERSION: 1.11.0  (2026-07-29)
-Check this against the small "v1.11.0" tag in the app header once
+VERSION: 1.12.0  (2026-07-29)
+Check this against the small "v1.12.0" tag in the app header once
 loaded — the two should always match, or something didn't deploy.
 
 CHANGELOG
+  1.12.0 (2026-07-29) — added the flagged-duplicate review card on
+                        the Dashboard, completing the backend piece
+                        from v2.8.0/2.8.0. Shows any rides flagged as
+                        overlapping an existing ride's time window,
+                        both sides' stats side by side, with a delete
+                        button for each and a "keep both — genuinely
+                        different rides" option. Hidden entirely when
+                        there's nothing to review, so it doesn't
+                        clutter the Dashboard on a normal visit.
+                        Delete uses a confirm() prompt first, since
+                        it's irreversible.
   1.11.0 (2026-07-29) — added an "Export to Excel" button on the
                         Dashboard page, downloading the full ride
                         history via the new /rides/export endpoint.
@@ -293,7 +304,7 @@ iframe { width: 100%; height: 800px; border: none; }
       <button class="nav-btn" id="navProfileBtn" onclick="showPage('interview', this)">👤 Profile</button>
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
-      <span style="font-size:10px;color:#bbb;">v1.11.0</span>
+      <span style="font-size:10px;color:#bbb;">v1.12.0</span>
       <button class="logout" onclick="logout()">Sign out</button>
     </div>
   </div>
@@ -303,6 +314,11 @@ iframe { width: 100%; height: 800px; border: none; }
     <div style="padding:20px;">
       <div style="text-align:right;margin-bottom:10px;">
         <button id="exportBtn" onclick="exportRidesExcel()" style="background:#059669;color:#fff;border:none;padding:8px 16px;border-radius:6px;font-size:13px;cursor:pointer;">📥 Export to Excel</button>
+      </div>
+      <div id="flaggedReviewCard" style="display:none;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:16px;margin-bottom:16px;">
+        <h2 style="margin:0 0 4px;font-size:1rem;">⚠️ Possible Duplicate Rides</h2>
+        <div style="font-size:12px;color:#78716c;margin-bottom:12px;">These rides' time windows overlap — probably the same ride recorded on two devices. Resolve each below.</div>
+        <div id="flaggedList"></div>
       </div>
       <div class="dashboard-frame">
         <iframe id="dashFrame" src="about:blank"></iframe>
@@ -663,9 +679,63 @@ async function showApp() {
 }
 
 async function loadDashboard() {
+  loadFlaggedRides();
   const res = await fetch(API+"/dashboard", {headers:{Authorization:"Bearer "+token}});
   const html = await res.text();
   document.getElementById('dashFrame').srcdoc = html;
+}
+
+function renderFlaggedPair(pair) {
+  const stat = (name, dist, dur, power, hr) =>
+    escapeHtml(name || 'Ride') + '<div style="font-size:12px;color:#555;">' + dist + ' mi · ' + dur + 'h'
+    + (power ? ' · ' + power + 'W' : '') + (hr ? ' · ' + hr + ' bpm' : '') + '</div>';
+  return (
+    '<div style="border:1px solid #eee;border-radius:8px;padding:12px;margin-bottom:12px;background:#fff;">'
+    + '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
+    + '<div style="flex:1;min-width:200px;background:#f9fafb;border-radius:6px;padding:10px;">'
+    + '<div style="font-size:11px;color:#888;text-transform:uppercase;">' + escapeHtml(pair.original_date) + '</div>'
+    + '<div style="font-weight:600;">' + stat(pair.original_name, pair.original_dist, pair.original_duration, pair.original_avg_power, pair.original_avg_hr) + '</div>'
+    + '<button onclick="deleteFlaggedRide(' + pair.original_id + ')" style="margin-top:8px;font-size:11px;background:#dc2626;color:#fff;border:none;padding:5px 10px;border-radius:4px;cursor:pointer;">Delete this one</button>'
+    + '</div>'
+    + '<div style="flex:1;min-width:200px;background:#f9fafb;border-radius:6px;padding:10px;">'
+    + '<div style="font-size:11px;color:#888;text-transform:uppercase;">' + escapeHtml(pair.flagged_date) + ' (newly synced)</div>'
+    + '<div style="font-weight:600;">' + stat(pair.flagged_name, pair.flagged_dist, pair.flagged_duration, pair.flagged_avg_power, pair.flagged_avg_hr) + '</div>'
+    + '<button onclick="deleteFlaggedRide(' + pair.flagged_id + ')" style="margin-top:8px;font-size:11px;background:#dc2626;color:#fff;border:none;padding:5px 10px;border-radius:4px;cursor:pointer;">Delete this one</button>'
+    + '</div></div>'
+    + '<button onclick="keepBothFlagged(' + pair.flagged_id + ')" style="margin-top:10px;font-size:11px;background:#059669;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;">These are actually different rides — keep both</button>'
+    + '</div>'
+  );
+}
+
+async function loadFlaggedRides() {
+  const card = document.getElementById('flaggedReviewCard');
+  const list = document.getElementById('flaggedList');
+  try {
+    const res = await fetch(API+"/rides/flagged", {headers:{Authorization:"Bearer "+token}});
+    const data = await res.json();
+    if (!data.flagged || !data.flagged.length) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    list.innerHTML = data.flagged.map(renderFlaggedPair).join('');
+  } catch(e) { card.style.display = 'none'; }
+}
+
+async function deleteFlaggedRide(rideId) {
+  if (!confirm("Delete this ride? This can't be undone.")) return;
+  try {
+    await fetch(API+"/rides/"+rideId, {method:"DELETE", headers:{Authorization:"Bearer "+token}});
+    loadDashboard();
+  } catch(e) {
+    alert("Couldn't delete. Please try again.");
+  }
+}
+
+async function keepBothFlagged(rideId) {
+  try {
+    await fetch(API+"/rides/"+rideId+"/clear-review", {method:"POST", headers:{Authorization:"Bearer "+token}});
+    loadFlaggedRides();
+  } catch(e) {
+    alert("Couldn't update. Please try again.");
+  }
 }
 
 async function exportRidesExcel() {
