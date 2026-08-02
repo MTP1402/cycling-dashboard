@@ -2,11 +2,62 @@
 ═══════════════════════════════════════════════════════════════════
 CYCLING COACH — cycling_coach_app.html
 
-VERSION: 1.14.0  (2026-08-03)
-Check this against the small "v1.14.0" tag in the app header once
+VERSION: 1.16.0  (2026-08-03)
+Check this against the small "v1.16.0" tag in the app header once
 loaded — the two should always match, or something didn't deploy.
 
 CHANGELOG
+  1.16.0 (2026-08-03) — extended the combined import card to accept
+                        .pdf and .docx (main.py v2.17.0's new
+                        extraction support), updated the file picker's
+                        accept attribute and description text
+                        accordingly. importAll()'s routing logic now
+                        sends .txt/.md/.pdf/.docx together to POST
+                        /coaching/import (unchanged endpoint, all four
+                        document types share one call path there) —
+                        renamed the local textFiles variable to
+                        documentFiles to match, since it's no longer
+                        only text. Added a client-side check for the
+                        older .doc format specifically (distinct regex
+                        from .docx, verified not to false-match one
+                        against the other) — .doc isn't supported, and
+                        catching it before the network round-trip gives
+                        a specific "save as .docx" message immediately
+                        rather than a generic "unknown file type" one.
+                        Tested before shipping: the extended
+                        classification logic run against a pdf+docx+
+                        image mix, a .doc/.docx pair (confirmed the
+                        regexes don't cross-match), plain .txt/.md
+                        (unchanged), and an unrelated file type (still
+                        correctly flagged).
+  1.15.0 (2026-08-03) — merged the two separate import cards ("Import
+                        context for your coach" text importer and the
+                        "Import a photo for your coach" card from
+                        1.14.0) into one combined upload area, per
+                        explicit request — one file picker accepting
+                        both .txt/.md and JPEG/PNG/WEBP/GIF, mixed in
+                        the same selection if wanted. New importAll()
+                        replaces both importDoc() and importImages():
+                        splits the selected files by type, sends any
+                        text files to POST /coaching/import one at a
+                        time (unchanged, that endpoint only ever took
+                        one file), and sends any photos together in
+                        ONE call to POST /coaching/import-image — not
+                        one call per photo, since a front+back pair
+                        needs to reach the AI together for one combined
+                        description, not two disconnected ones. Neither
+                        backend endpoint changed, this is routing only.
+                        A file that's neither (e.g. a stray .pdf) is
+                        flagged by name rather than silently dropped or
+                        misrouted. Removed importDoc() entirely rather
+                        than leave it as unreferenced dead code now
+                        that the button no longer calls it.
+                        Tested before shipping: the type-classification
+                        logic run directly against representative fake
+                        file lists — mixed batch, text-only, image-
+                        only, an unrecognized type, and a case-
+                        insensitive extension match all verified
+                        correct.
   1.14.0 (2026-08-03) — added the "Import a photo for your coach" card
                         on the Coaching page (main.py v2.16.0's new
                         POST /coaching/import-image) — up to 4 images
@@ -331,7 +382,7 @@ iframe { width: 100%; height: 800px; border: none; }
       <button class="nav-btn" id="navProfileBtn" onclick="showPage('interview', this)">👤 Profile</button>
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
-      <span style="font-size:10px;color:#bbb;">v1.14.0</span>
+      <span style="font-size:10px;color:#bbb;">v1.16.0</span>
       <button class="logout" onclick="logout()">Sign out</button>
     </div>
   </div>
@@ -441,30 +492,20 @@ iframe { width: 100%; height: 800px; border: none; }
       <div class="upload-card">
         <h2>📄 Import context for your coach</h2>
         <p style="font-size:12px;color:#666;margin-bottom:10px;">
-          Handoff notes, training plans, or anything else you want your coach to know — .txt or .md files.
+          Handoff notes, training plans, a gel packet or nutrition label (front + back — up to 4
+          photos at once), or anything else you want your coach to know — .txt/.md, PDF, Word
+          (.docx — the older .doc format isn't supported), or JPEG/PNG/WEBP/GIF photos, mixed in
+          the same upload if you like.
+          <strong>Photos aren't stored</strong> — only what your coach reads from them.
           <strong>For your privacy and security, please don't upload medical records, lab results, or other health documents</strong> —
-          this app doesn't process those.
+          this app doesn't process those, in any format.
         </p>
         <div class="upload-row">
-          <div class="field"><label>File (.txt or .md)</label><input type="file" id="importFile" accept=".txt,.md"></div>
-          <button class="upload-btn" id="importBtn" onclick="importDoc()">Import</button>
+          <div class="field"><label>File(s) or photo(s)</label><input type="file" id="importFile" accept=".txt,.md,.pdf,.docx,image/jpeg,image/png,image/webp,image/gif" multiple></div>
+          <button class="upload-btn" id="importBtn" onclick="importAll()">Import</button>
         </div>
         <div class="status" id="importStatus"></div>
         <div id="importsList" style="margin-top:10px;font-size:12px;color:#555;"></div>
-      </div>
-
-      <div class="upload-card">
-        <h2>📷 Import a photo for your coach</h2>
-        <p style="font-size:12px;color:#666;margin-bottom:10px;">
-          A gel packet, nutrition label, or anything else worth showing your coach — front and back
-          if there's text on both sides (up to 4 images at once). <strong>The photo itself isn't
-          stored</strong> — only what your coach reads from it.
-        </p>
-        <div class="upload-row">
-          <div class="field"><label>Image(s) — JPEG/PNG/WEBP/GIF</label><input type="file" id="importImageFile" accept="image/jpeg,image/png,image/webp,image/gif" multiple></div>
-          <button class="upload-btn" id="importImageBtn" onclick="importImages()">Analyze</button>
-        </div>
-        <div class="status" id="importImageStatus"></div>
       </div>
 
       <div class="settings-card">
@@ -958,58 +999,94 @@ async function sendChat() {
   document.getElementById('chatInput').focus();
 }
 
-async function importDoc() {
+// Single combined importer for the merged "Import context for your coach"
+// card — one file picker, mixed types allowed. Text files (.txt/.md) go to
+// POST /coaching/import one at a time (that endpoint only ever took one
+// file); any photos selected go together in ONE call to POST /coaching/
+// import-image (not one call per photo), since a front+back pair needs to
+// reach the AI together to produce one combined description, not two
+// disconnected ones. Neither backend endpoint changed — this just routes
+// to whichever already-built one fits each selected file, then reports a
+// combined result.
+async function importAll() {
   const fileInput = document.getElementById('importFile');
   const status = document.getElementById('importStatus');
   const btn = document.getElementById('importBtn');
-  const file = fileInput.files[0];
-  if (!file) { status.textContent = "Please select a .txt or .md file"; status.className = 'status err'; return; }
-  btn.disabled = true;
-  status.textContent = "Importing " + file.name + "...";
-  status.className = 'status';
-  try {
-    const form = new FormData();
-    form.append("file", file);
-    const res = await fetch(API+"/coaching/import", {method:"POST", headers:{Authorization:"Bearer "+token}, body:form});
-    const data = await res.json();
-    if (!res.ok) { status.textContent = data.detail || "Import failed"; status.className = 'status err'; }
-    else {
-      status.textContent = "Imported " + data.filename + " (" + data.chars + " chars)" + (data.truncated ? " — truncated to fit" : "");
-      status.className = 'status ok';
-      fileInput.value = '';
-      loadImports();
-    }
-  } catch(e) { status.textContent = "Import failed: " + e.message; status.className = 'status err'; }
-  btn.disabled = false;
-}
-
-// Image(s) never leave this one request as anything but bytes sent for
-// analysis — nothing about them is stored locally either, same "read and
-// discard" approach as the backend. Writes to the same imported_docs table
-// as importDoc() above, so loadImports() picks up the result automatically.
-async function importImages() {
-  const fileInput = document.getElementById('importImageFile');
-  const status = document.getElementById('importImageStatus');
-  const btn = document.getElementById('importImageBtn');
   const files = Array.from(fileInput.files);
-  if (!files.length) { status.textContent = "Please select at least one image"; status.className = 'status err'; return; }
-  if (files.length > 4) { status.textContent = "Please select at most 4 images"; status.className = 'status err'; return; }
+  if (!files.length) { status.textContent = "Please select at least one file or photo"; status.className = 'status err'; return; }
+
+  // .docx is matched here; .doc (old binary format, checked separately
+  // below) deliberately is not — python-docx server-side can't read it,
+  // so this catches it client-side with a specific message rather than
+  // a round trip just to get the same rejection back from the server.
+  const documentFiles = files.filter(f => /\.(txt|md|pdf|docx)$/i.test(f.name));
+  const oldDocFiles = files.filter(f => /\.doc$/i.test(f.name));
+  const imageFiles = files.filter(f => f.type.startsWith('image/'));
+  const unknown = files.filter(f =>
+    !documentFiles.includes(f) && !oldDocFiles.includes(f) && !imageFiles.includes(f));
+
+  if (oldDocFiles.length) {
+    status.textContent = "The older .doc format isn't supported (" + oldDocFiles.map(f=>f.name).join(', ')
+      + ") — please save as .docx and re-upload.";
+    status.className = 'status err';
+    return;
+  }
+  if (unknown.length) {
+    status.textContent = "Not sure what type this is: " + unknown.map(f=>f.name).join(', ')
+      + " — use .txt/.md/.pdf/.docx for documents or JPEG/PNG/WEBP/GIF for photos.";
+    status.className = 'status err';
+    return;
+  }
+  if (imageFiles.length > 4) {
+    status.textContent = "Please select at most 4 photos at a time";
+    status.className = 'status err';
+    return;
+  }
+
   btn.disabled = true;
-  status.textContent = "Reading " + files.length + " image(s)...";
-  status.className = 'status';
-  try {
-    const form = new FormData();
-    files.forEach(f => form.append("files", f));
-    const res = await fetch(API+"/coaching/import-image", {method:"POST", headers:{Authorization:"Bearer "+token}, body:form});
-    const data = await res.json();
-    if (!res.ok) { status.textContent = data.detail || "Analysis failed"; status.className = 'status err'; }
-    else {
-      status.textContent = "Added to your coach's context ✓"; status.className = 'status ok';
-      fileInput.value = '';
-      loadImports();
-    }
-  } catch(e) { status.textContent = "Analysis failed: " + e.message; status.className = 'status err'; }
+  let successCount = 0;
+  const errors = [];
+
+  for (const file of documentFiles) {
+    status.textContent = "Importing " + file.name + "...";
+    status.className = 'status';
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(API+"/coaching/import", {method:"POST", headers:{Authorization:"Bearer "+token}, body:form});
+      const data = await res.json();
+      if (!res.ok) errors.push(file.name + ": " + (data.detail || "import failed"));
+      else successCount++;
+    } catch(e) { errors.push(file.name + ": " + e.message); }
+  }
+
+  if (imageFiles.length) {
+    status.textContent = "Reading " + imageFiles.length + " photo(s)...";
+    status.className = 'status';
+    try {
+      const form = new FormData();
+      imageFiles.forEach(f => form.append("files", f));
+      const res = await fetch(API+"/coaching/import-image", {method:"POST", headers:{Authorization:"Bearer "+token}, body:form});
+      const data = await res.json();
+      if (!res.ok) errors.push("Photo(s): " + (data.detail || "analysis failed"));
+      else successCount++;
+    } catch(e) { errors.push("Photo(s): " + e.message); }
+  }
+
   btn.disabled = false;
+  fileInput.value = '';
+  loadImports();
+
+  if (successCount && !errors.length) {
+    status.textContent = "Added to your coach's context ✓";
+    status.className = 'status ok';
+  } else if (successCount && errors.length) {
+    status.textContent = successCount + " added — but: " + errors.join('; ');
+    status.className = 'status err';
+  } else {
+    status.textContent = "Import failed: " + errors.join('; ');
+    status.className = 'status err';
+  }
 }
 
 async function loadImports() {
