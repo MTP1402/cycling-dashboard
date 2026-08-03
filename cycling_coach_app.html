@@ -2,11 +2,40 @@
 ═══════════════════════════════════════════════════════════════════
 CYCLING COACH — cycling_coach_app.html
 
-VERSION: 1.17.0  (2026-08-03)
-Check this against the small "v1.17.0" tag in the app header once
+VERSION: 1.19.0  (2026-08-03)
+Check this against the small "v1.19.0" tag in the app header once
 loaded — the two should always match, or something didn't deploy.
 
 CHANGELOG
+  1.19.0 (2026-08-03) — moved "Disconnect Strava" off the Activities
+                        tab (where it sat right next to Sync Now,
+                        per Marc's own concern that this reads as
+                        confusing — an account-level disconnect action
+                        mixed in with the day-to-day sync action) onto
+                        a new "Strava Connection" card on the Profile
+                        tab, alongside My Bikes & Setups — same
+                        category of account-level setting. The backend
+                        endpoint (POST /strava/disconnect, v2.19.0)
+                        is unchanged; this is a UI placement move only.
+                        checkStravaStatus() now drives both the
+                        Activities panels AND the new Profile widget
+                        from one shared status check, and is called
+                        every time the Profile tab loads (previously
+                        only ever ran once at initial login), so the
+                        widget can't show stale status after a
+                        connect/disconnect done from elsewhere.
+  1.18.0 (2026-08-03) — added a "Disconnect Strava" link under Sync
+                        Now (main.py v2.19.0's new POST /strava/
+                        disconnect) — a real gap found while
+                        diagnosing Mitch's sync issue: there was
+                        previously no way to get back to the Connect
+                        Strava button once already connected, so no
+                        way to force a fresh OAuth handshake if the
+                        stored token ever went bad. Explicitly flips
+                        the two panels back itself, since
+                        checkStravaStatus() only ever flips them one
+                        direction and nothing had ever needed the
+                        reverse before now.
   1.17.0 (2026-08-03) — syncStrava() now shows a real error state (red)
                         when main.py v2.18.0's new strava_error flag
                         comes back, instead of always showing green
@@ -392,7 +421,7 @@ iframe { width: 100%; height: 800px; border: none; }
       <button class="nav-btn" id="navProfileBtn" onclick="showPage('interview', this)">👤 Profile</button>
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
-      <span style="font-size:10px;color:#bbb;">v1.17.0</span>
+      <span style="font-size:10px;color:#bbb;">v1.19.0</span>
       <button class="logout" onclick="logout()">Sign out</button>
     </div>
   </div>
@@ -585,6 +614,13 @@ iframe { width: 100%; height: 800px; border: none; }
           <button onclick="addEquipmentDirect()">Add</button>
         </div>
         <div class="status" id="equipmentManageStatus"></div>
+      </div>
+
+      <div class="settings-card">
+        <h2>🔄 Strava Connection</h2>
+        <div class="sub">Syncing itself happens on the Activities tab — this is just for managing the connection.</div>
+        <div id="stravaProfileStatus" style="font-size:13px;color:#555;margin-bottom:10px;">Checking connection status...</div>
+        <a href="#" id="stravaProfileDisconnectLink" onclick="disconnectStrava(); return false;" style="display:none;font-size:12px;color:#888;text-decoration:underline;">Disconnect Strava</a>
       </div>
     </div>
   </div>
@@ -919,6 +955,7 @@ async function openRideDetail(rideId) {
 
 async function loadInterview() {
   loadEquipmentList();
+  checkStravaStatus();
   // Load existing profile
   try {
     const res = await fetch(API+"/profile", {headers:{Authorization:"Bearer "+token}});
@@ -1413,6 +1450,8 @@ async function saveRideEquipment() {
 }
 
 async function checkStravaStatus() {
+  const profileStatus = document.getElementById('stravaProfileStatus');
+  const profileDisconnect = document.getElementById('stravaProfileDisconnectLink');
   try {
     const res = await fetch(API+"/strava/status", {headers:{Authorization:"Bearer "+token}});
     const data = await res.json();
@@ -1422,8 +1461,18 @@ async function checkStravaStatus() {
       if (data.last_sync) {
         document.getElementById('lastSync').textContent = 'Last sync: ' + new Date(data.last_sync).toLocaleDateString();
       }
+      if (profileStatus) {
+        profileStatus.innerHTML = "✓ <span style='color:#27AE60;'>Strava connected</span>"
+          + (data.last_sync ? " — last synced " + new Date(data.last_sync).toLocaleDateString() : "");
+      }
+      if (profileDisconnect) profileDisconnect.style.display = 'inline';
+    } else {
+      if (profileStatus) profileStatus.textContent = "Not connected — head to the Activities tab to connect Strava.";
+      if (profileDisconnect) profileDisconnect.style.display = 'none';
     }
-  } catch(e) {}
+  } catch(e) {
+    if (profileStatus) profileStatus.textContent = "Couldn't check connection status right now.";
+  }
 }
 
 function connectStrava() {
@@ -1432,6 +1481,27 @@ function connectStrava() {
   const check = setInterval(() => {
     try { if (w && w.closed) { clearInterval(check); setTimeout(checkStravaStatus, 1500); } } catch(e) {}
   }, 1000);
+}
+
+// checkStravaStatus() only ever flips stravaNotConnected -> stravaConnected,
+// never back — nothing previously called it in the other direction at all.
+// Disconnect explicitly reverses both the Activities panels and the Profile
+// widget itself rather than relying on a status re-check.
+async function disconnectStrava() {
+  if (!confirm("Disconnect Strava? Rides you've already imported won't be affected — you can reconnect any time.")) return;
+  try {
+    await fetch(API+"/strava/disconnect", {method:"POST", headers:{Authorization:"Bearer "+token}});
+  } catch(e) {
+    // Even if the request fails, still flip the UI back — worst case the
+    // stored token lingers server-side and Connect Strava's fresh OAuth
+    // exchange overwrites it anyway next time.
+  }
+  document.getElementById('stravaConnected').style.display = 'none';
+  document.getElementById('stravaNotConnected').style.display = 'block';
+  const profileStatus = document.getElementById('stravaProfileStatus');
+  const profileDisconnect = document.getElementById('stravaProfileDisconnectLink');
+  if (profileStatus) profileStatus.textContent = "Not connected — head to the Activities tab to connect Strava.";
+  if (profileDisconnect) profileDisconnect.style.display = 'none';
 }
 
 async function syncStrava() {
