@@ -2,11 +2,19 @@
 ═══════════════════════════════════════════════════════════════════
 CYCLING COACH — cycling_coach_app.html
 
-VERSION: 1.20.0  (2026-08-05)
-Check this against the small "v1.20.0" tag in the app header once
+VERSION: 1.21.0  (2026-08-05)
+Check this against the small "v1.21.0" tag in the app header once
 loaded — the two should always match, or something didn't deploy.
 
 CHANGELOG
+  1.21.0 (2026-08-05) — added a "Clean Up Exact Duplicates" button to
+                        the Possible Duplicate Rides card, calling the
+                        new POST /rides/cleanup-exact-duplicates
+                        (backend v2.20.1). Auto-removes flagged pairs
+                        that are stat-for-stat identical re-sync noise
+                        from the runaway-duplicate bug, leaves any
+                        genuinely different pairs (real FIT-vs-Strava
+                        source decisions) for manual review below it.
   1.20.0 (2026-08-05) — moved the "Possible Duplicate Rides" card from
                         Dashboard to Activities, right under Sync from
                         Strava, per Marc's request — it's something you
@@ -434,7 +442,7 @@ iframe { width: 100%; height: 800px; border: none; }
       <button class="nav-btn" id="navProfileBtn" onclick="showPage('interview', this)">👤 Profile</button>
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
-      <span style="font-size:10px;color:#bbb;">v1.20.0</span>
+      <span style="font-size:10px;color:#bbb;">v1.21.0</span>
       <button class="logout" onclick="logout()">Sign out</button>
     </div>
   </div>
@@ -492,7 +500,9 @@ iframe { width: 100%; height: 800px; border: none; }
 
       <div id="flaggedReviewCard" style="display:none;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:16px;margin-bottom:16px;">
         <h2 style="margin:0 0 4px;font-size:1rem;">⚠️ Possible Duplicate Rides</h2>
-        <div style="font-size:12px;color:#78716c;margin-bottom:12px;">These rides' time windows overlap — probably the same ride recorded on two devices. Resolve each below.</div>
+        <div style="font-size:12px;color:#78716c;margin-bottom:12px;">These rides' time windows overlap — probably the same ride recorded on two devices. Resolve each below, or auto-clean the exact re-sync copies in one click.</div>
+        <button onclick="cleanupExactDuplicates()" id="cleanupDupesBtn" style="margin-bottom:12px;font-size:12px;background:#78716c;color:#fff;border:none;padding:7px 14px;border-radius:6px;cursor:pointer;">🧹 Clean Up Exact Duplicates</button>
+        <div class="status" id="cleanupDupesStatus"></div>
         <div id="flaggedList"></div>
       </div>
 
@@ -860,6 +870,31 @@ async function loadFlaggedRides() {
     card.style.display = 'block';
     list.innerHTML = data.flagged.map(renderFlaggedPair).join('');
   } catch(e) { card.style.display = 'none'; }
+}
+
+async function cleanupExactDuplicates() {
+  const btn = document.getElementById('cleanupDupesBtn');
+  const status = document.getElementById('cleanupDupesStatus');
+  btn.disabled = true;
+  status.textContent = 'Checking for exact duplicates...';
+  status.className = 'status';
+  try {
+    const res = await fetch(API+"/rides/cleanup-exact-duplicates", {method:"POST", headers:{Authorization:"Bearer "+token}});
+    const data = await res.json();
+    if (data.deleted_count > 0) {
+      status.textContent = 'Removed ' + data.deleted_count + ' exact duplicate' + (data.deleted_count !== 1 ? 's' : '')
+        + (data.remaining_for_review ? ' — ' + data.remaining_for_review + ' pair' + (data.remaining_for_review !== 1 ? 's' : '') + ' still need your call below.' : ' — all clear!');
+      status.className = 'status ok';
+    } else {
+      status.textContent = 'No exact duplicates found — remaining pairs below genuinely differ and need your call.';
+      status.className = 'status';
+    }
+    loadFlaggedRides();
+  } catch(e) {
+    status.textContent = "Cleanup failed. Please try again.";
+    status.className = 'status err';
+  }
+  btn.disabled = false;
 }
 
 async function deleteFlaggedRide(rideId) {
