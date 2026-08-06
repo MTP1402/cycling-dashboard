@@ -2,11 +2,24 @@
 ═══════════════════════════════════════════════════════════════════
 CYCLING COACH — cycling_coach_app.html
 
-VERSION: 1.19.0  (2026-08-03)
-Check this against the small "v1.19.0" tag in the app header once
+VERSION: 1.20.0  (2026-08-05)
+Check this against the small "v1.20.0" tag in the app header once
 loaded — the two should always match, or something didn't deploy.
 
 CHANGELOG
+  1.20.0 (2026-08-05) — moved the "Possible Duplicate Rides" card from
+                        Dashboard to Activities, right under Sync from
+                        Strava, per Marc's request — it's something you
+                        resolve right after a sync, not a dashboard
+                        metric. Content and behavior unchanged; it's
+                        still populated by loadFlaggedRides(), still
+                        refreshed automatically after every Sync Now.
+                        Also now refreshes on simply opening the
+                        Activities tab, not just after a sync or on
+                        initial login. Backend v2.20.0 fixes the real
+                        underlying bug (repeat syncs kept re-flagging
+                        the same ride) — this frontend change is UI
+                        placement only.
   1.19.0 (2026-08-03) — moved "Disconnect Strava" off the Activities
                         tab (where it sat right next to Sync Now,
                         per Marc's own concern that this reads as
@@ -421,7 +434,7 @@ iframe { width: 100%; height: 800px; border: none; }
       <button class="nav-btn" id="navProfileBtn" onclick="showPage('interview', this)">👤 Profile</button>
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
-      <span style="font-size:10px;color:#bbb;">v1.19.0</span>
+      <span style="font-size:10px;color:#bbb;">v1.20.0</span>
       <button class="logout" onclick="logout()">Sign out</button>
     </div>
   </div>
@@ -431,11 +444,6 @@ iframe { width: 100%; height: 800px; border: none; }
     <div style="padding:20px;">
       <div style="text-align:right;margin-bottom:10px;">
         <button id="exportBtn" onclick="exportRidesExcel()" style="background:#059669;color:#fff;border:none;padding:8px 16px;border-radius:6px;font-size:13px;cursor:pointer;">📥 Export to Excel</button>
-      </div>
-      <div id="flaggedReviewCard" style="display:none;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:16px;margin-bottom:16px;">
-        <h2 style="margin:0 0 4px;font-size:1rem;">⚠️ Possible Duplicate Rides</h2>
-        <div style="font-size:12px;color:#78716c;margin-bottom:12px;">These rides' time windows overlap — probably the same ride recorded on two devices. Resolve each below.</div>
-        <div id="flaggedList"></div>
       </div>
       <div class="dashboard-frame">
         <iframe id="dashFrame" src="about:blank"></iframe>
@@ -480,6 +488,12 @@ iframe { width: 100%; height: 800px; border: none; }
             <div class="status" id="syncStatus"></div>
           </div>
         </div>
+      </div>
+
+      <div id="flaggedReviewCard" style="display:none;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:16px;margin-bottom:16px;">
+        <h2 style="margin:0 0 4px;font-size:1rem;">⚠️ Possible Duplicate Rides</h2>
+        <div style="font-size:12px;color:#78716c;margin-bottom:12px;">These rides' time windows overlap — probably the same ride recorded on two devices. Resolve each below.</div>
+        <div id="flaggedList"></div>
       </div>
 
       <div class="upload-card">
@@ -792,6 +806,7 @@ function showPage(page, btnEl) {
   if (btn && btn.classList) btn.classList.add('active');
   if (page==='interview') loadInterview();
   if (page==='dashboard') loadDashboard();
+  if (page==='activities') loadFlaggedRides();
   if (page==='coaching') loadCoaching();
 }
 
