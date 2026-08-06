@@ -2,11 +2,25 @@
 ═══════════════════════════════════════════════════════════════════
 CYCLING COACH — cycling_coach_app.html
 
-VERSION: 1.21.0  (2026-08-05)
-Check this against the small "v1.21.0" tag in the app header once
+VERSION: 1.21.1  (2026-08-06)
+Check this against the small "v1.21.1" tag in the app header once
 loaded — the two should always match, or something didn't deploy.
 
 CHANGELOG
+  1.21.1 (2026-08-06) — deleteFlaggedRide() now checks res.ok and
+                        surfaces the real server error detail instead
+                        of a generic "Couldn't delete" — fetch() never
+                        throws on an HTTP error status by itself, only
+                        on a genuine network failure, so a 500 was
+                        passing through with no real information about
+                        what went wrong. Paired with backend v2.20.2,
+                        which fixes the actual cause (a foreign-key
+                        constraint blocking deletes of any ride still
+                        referenced by another row's possible_
+                        duplicate_of — confirmed live as both the
+                        "Couldn't delete" error on original-side
+                        deletes and the "Cleanup failed" error on the
+                        bulk cleanup button).
   1.21.0 (2026-08-05) — added a "Clean Up Exact Duplicates" button to
                         the Possible Duplicate Rides card, calling the
                         new POST /rides/cleanup-exact-duplicates
@@ -442,7 +456,7 @@ iframe { width: 100%; height: 800px; border: none; }
       <button class="nav-btn" id="navProfileBtn" onclick="showPage('interview', this)">👤 Profile</button>
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
-      <span style="font-size:10px;color:#bbb;">v1.21.0</span>
+      <span style="font-size:10px;color:#bbb;">v1.21.1</span>
       <button class="logout" onclick="logout()">Sign out</button>
     </div>
   </div>
@@ -900,7 +914,17 @@ async function cleanupExactDuplicates() {
 async function deleteFlaggedRide(rideId) {
   if (!confirm("Delete this ride? This can't be undone.")) return;
   try {
-    await fetch(API+"/rides/"+rideId, {method:"DELETE", headers:{Authorization:"Bearer "+token}});
+    const res = await fetch(API+"/rides/"+rideId, {method:"DELETE", headers:{Authorization:"Bearer "+token}});
+    if (!res.ok) {
+      // fetch() only throws on a network failure, never on an HTTP error
+      // status — a 500 with a body was previously passing through here
+      // silently (or only surfacing as a network error if CORS headers
+      // were missing on the error response). Check status explicitly so
+      // a real server error always shows the actual detail, not a guess.
+      const data = await res.json().catch(() => ({}));
+      alert("Couldn't delete: " + (data.detail || ("HTTP " + res.status)));
+      return;
+    }
     loadDashboard();
   } catch(e) {
     alert("Couldn't delete. Please try again.");
